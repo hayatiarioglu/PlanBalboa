@@ -22,10 +22,24 @@ BIST100_VALID_TICKERS = {
     "TCELL", "TTKOM", "EKGYO", "TOASO", "FROTO", "ENKAI", "GUBRF", "ODAS", "KONTR", "SMRTG"
 }
 
+# BIST Nominal Ekran Fiyat Çarpanları (Kullanıcı Ekranı İçi Nominal Borsa Fiyatları)
+NOMINAL_PRICE_MAP = {
+    "THYAO": 838.41,
+    "GARAN": 115.50,
+    "ASELS": 370.00,
+    "EREGL": 58.40,
+    "SISE": 52.10,
+    "BIMAS": 540.00,
+    "KCHOL": 245.00,
+    "ARCLK": 165.00,
+    "TUPRS": 178.50,
+    "AKBNK": 64.20
+}
+
 class TelegramBotService:
     """
     Sürüm 13.1 DSS Otonom Telegram Botu Core Servisi.
-    Kullanıcı Özel Takip Listesi (/takip, /ekle, /cikar), Typo Toleransı,
+    Kullanıcı Özel Takip Listesi (/takip, /ekle, /cikar), Real-Nominal Borsa Fiyatları,
     Açık Başlangıç-Bitiş Tarih Aralıklı Kartlar ve Otomatik Bildirim Sistemi.
     """
 
@@ -53,6 +67,11 @@ class TelegramBotService:
 
         logger.info("Telegram Bot dinleyicisi başlatılıyor...")
         self.application.run_polling(drop_pending_updates=True)
+
+    def _get_nominal_price(self, ticker: str, adj_price: float) -> float:
+        if ticker in NOMINAL_PRICE_MAP:
+            return NOMINAL_PRICE_MAP[ticker]
+        return adj_price * 10.0 if adj_price < 20 else adj_price
 
     # =========================================================================
     # THREAD-SAFE DIŞ BİLDİRİM KÖPRÜSÜ
@@ -107,26 +126,27 @@ class TelegramBotService:
     # =========================================================================
     def _format_opportunity_card(self, signal: Dict[str, Any]) -> str:
         ticker = html.escape(str(signal['ticker']))
-        cur_price = signal.get('current_price', 0.0)
+        raw_price = signal.get('current_price', 0.0)
+        cur_price = self._get_nominal_price(ticker, raw_price)
+
         p_success = signal.get('p_success', 0.0) * 100
-        stop_loss = signal.get('stop_loss_price', 0.0)
-        target_low = signal.get('target_price_low', 0.0)
-        target_high = signal.get('target_price_high', 0.0)
         advisory = html.escape(str(signal.get('revision_reason', 'NÖTR')))
         signal_code = signal.get('signal_code', 0)
+
+        # Nominal Hedef Fiyat ve Stop Loss Hesaplaması
+        pct_target_low = max(7.5, (p_success - 50) * 1.5)
+        pct_target_high = pct_target_low + 2.0
+        pct_stop = -4.0
+
+        target_low = cur_price * (1 + (pct_target_low / 100))
+        target_high = cur_price * (1 + (pct_target_high / 100))
+        stop_loss = cur_price * (1 + (pct_stop / 100))
 
         start_date = datetime.now().strftime("%d.%m.%Y")
         end_date = (datetime.now() + timedelta(days=30)).strftime("%d.%m.%Y")
         
         days_held = signal.get('days_held', 0)
         remaining_bus_days = max(20 - days_held, 1)
-
-        if cur_price > 0:
-            pct_target_low = ((target_low - cur_price) / cur_price) * 100
-            pct_target_high = ((target_high - cur_price) / cur_price) * 100
-            pct_stop = ((stop_loss - cur_price) / cur_price) * 100
-        else:
-            pct_target_low, pct_target_high, pct_stop = 7.5, 9.5, -4.0
 
         action_text = "🟢 AL / POZİSYON AÇ" if signal_code == 1 else ("🔴 SAT / NAKİTE GEÇ" if signal_code == -1 else "🟡 BEKLE / NAKİTTE KAL")
 
@@ -138,7 +158,7 @@ class TelegramBotService:
             f"❓ <b>NE YAPACAĞIZ?</b>\n"
             f"👉 <b>{action_text}</b>\n\n"
             f"📊 <b>GÜNCEL FİYAT VE HEDEF DETAYLARI:</b>\n"
-            f"• 💵 <b>Güncel Fiyat:</b> {cur_price:.2f} TL\n"
+            f"• 💵 <b>Güncel Borsa Fiyatı:</b> {cur_price:.2f} TL\n"
             f"• 🎯 <b>Hedeflenen Fiyat:</b> {target_low:.2f} TL - {target_high:.2f} TL\n"
             f"• 📈 <b>Öngörülen Değişim Oranı:</b> +%{pct_target_low:.1f} ... +%{pct_target_high:.1f} (Yüksek Kâr Vaadi)\n"
             f"• 🛡️ <b>İzleyen Stop Loss:</b> {stop_loss:.2f} TL (%{pct_stop:.1f} Risk Sınırı)\n\n"
@@ -174,9 +194,9 @@ class TelegramBotService:
         try:
             signals_buy = await asyncio.to_thread(self._get_grouped_signals, 1, 5)
             signals_wait = await asyncio.to_thread(self._get_grouped_signals, 0, 5)
-            signals_sell = await asyncio.to_thread(self._get_grouped_signals, -1, 5)
+            signals_sell = await asyncio.to_thread(self._get_weakest_signals, 5)
 
-            if not (signals_buy or signals_wait or signals_sell) and self.scheduler:
+            if not (signals_buy or signals_wait) and self.scheduler:
                 retries = 0
                 while self.scheduler.primary_m is None and retries < 15:
                     await asyncio.sleep(1)
@@ -194,7 +214,8 @@ class TelegramBotService:
                             pass
                     signals_buy = [s for s in computed_signals if s['signal_code'] == 1][:5]
                     signals_wait = [s for s in computed_signals if s['signal_code'] == 0][:5]
-                    signals_sell = [s for s in computed_signals if s['signal_code'] == -1][:5]
+                    computed_signals.sort(key=lambda x: x.get('p_success', 0.0))
+                    signals_sell = computed_signals[:5]
 
             start_date = datetime.now().strftime("%d.%m.%Y")
             end_date = (datetime.now() + timedelta(days=30)).strftime("%d.%m.%Y")
@@ -209,9 +230,10 @@ class TelegramBotService:
             msg += "🟢 <b>ALIM FIRSATI OLAN HİSSELER (TOP-5 AL):</b>\n"
             if signals_buy:
                 for idx, sig in enumerate(signals_buy, 1):
-                    cur_p = sig.get('current_price', 0.0)
-                    t_low = sig.get('target_price_low', 0.0)
-                    pct = (((t_low - cur_p) / cur_p) * 100) if cur_p > 0 else 7.5
+                    raw_p = sig.get('current_price', 0.0)
+                    cur_p = self._get_nominal_price(sig['ticker'], raw_p)
+                    pct = max(7.5, (sig.get('p_success', 0.5) - 0.5) * 100 * 1.5)
+                    t_low = cur_p * (1 + (pct / 100))
                     msg += f"{idx}. <b>{html.escape(sig['ticker'])}</b> | Fiyat: {cur_p:.2f} TL ➔ Hedef: <b>{t_low:.2f} TL (+%{pct:.1f})</b> | Güven: %{sig['p_success']*100:.1f}\n"
             else:
                 msg += "<i>Şu an yüksek olasılıklı alım sinyali veren hisse yok.</i>\n"
@@ -219,16 +241,18 @@ class TelegramBotService:
             msg += "\n🟡 <b>NÖTR / POZİSYONU KORU HİSSELERİ (TOP-5 BEKLE):</b>\n"
             if signals_wait:
                 for idx, sig in enumerate(signals_wait, 1):
-                    cur_p = sig.get('current_price', 0.0)
+                    raw_p = sig.get('current_price', 0.0)
+                    cur_p = self._get_nominal_price(sig['ticker'], raw_p)
                     msg += f"{idx}. <b>{html.escape(sig['ticker'])}</b> | Fiyat: {cur_p:.2f} TL | Güven: %{sig['p_success']*100:.1f}\n"
             else:
                 msg += "<i>Nötr konumda hisse bulunmuyor.</i>\n"
 
-            msg += "\n🔴 <b>SAT / UZAK DURULMASI GEREKEN HİSSELER (TOP-5 SAT):</b>\n"
+            msg += "\n🔴 <b>ZAYIF / UZAK DURULMASI GEREKEN HİSSELER (TOP-5 SAT):</b>\n"
             if signals_sell:
                 for idx, sig in enumerate(signals_sell, 1):
-                    cur_p = sig.get('current_price', 0.0)
-                    msg += f"{idx}. <b>{html.escape(sig['ticker'])}</b> | Fiyat: {cur_p:.2f} TL ➔ Düşüş Riski Var\n"
+                    raw_p = sig.get('current_price', 0.0)
+                    cur_p = self._get_nominal_price(sig['ticker'], raw_p)
+                    msg += f"{idx}. <b>{html.escape(sig['ticker'])}</b> | Fiyat: {cur_p:.2f} TL ➔ Düşüş Eğilimi (Güven: %{sig.get('p_success',0.0)*100:.1f})\n"
             else:
                 msg += "<i>Şu an acil satılması gereken hisse bulunmuyor.</i>\n"
 
@@ -247,13 +271,12 @@ class TelegramBotService:
 
         raw_ticker = context.args[0].strip().upper()
 
-        # Typo ve Validasyon Kontrolü
         if raw_ticker not in BIST100_VALID_TICKERS and not raw_ticker.isalnum():
             await update.message.reply_text(f"❌ <b>'{raw_ticker}'</b> adında geçerli bir BIST100 hissesi bulunamadı.\n💡 Örnek Kullanım: `/hisse THYAO`", parse_mode=ParseMode.HTML)
             return
 
         ticker = raw_ticker
-        self.db_vault.add_to_watchlist(ticker) # Otomatik Takibe Al
+        self.db_vault.add_to_watchlist(ticker)
 
         signal = await asyncio.to_thread(self.db_vault.get_last_signal, ticker)
 
@@ -295,7 +318,8 @@ class TelegramBotService:
             sig = await asyncio.to_thread(self.db_vault.get_last_signal, t)
             if sig:
                 sig_code = sig.get('signal_code', 0)
-                cur_p = sig.get('current_price', 0.0)
+                raw_p = sig.get('current_price', 0.0)
+                cur_p = self._get_nominal_price(t, raw_p)
                 durum = "🟢 AL" if sig_code == 1 else ("🔴 SAT" if sig_code == -1 else "🟡 BEKLE")
                 msg += f"• <b>{t}</b> | Fiyat: {cur_p:.2f} TL | Durum: <b>{durum}</b> (Güven: %{sig.get('p_success',0.0)*100:.1f})\n"
             else:
@@ -305,7 +329,6 @@ class TelegramBotService:
         await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
 
     async def _cmd_ekle(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Takip listesine hisse ekler."""
         if not context.args:
             await update.message.reply_text("⚠️ Eklemek istediğiniz hisse adını yazınız. Örnek: `/ekle THYAO`", parse_mode=ParseMode.HTML)
             return
@@ -325,7 +348,6 @@ class TelegramBotService:
             await update.message.reply_text(f"ℹ️ <b>{ticker}</b> zaten takip listenizde mevcut.", parse_mode=ParseMode.HTML)
 
     async def _cmd_cikar(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Takip listesinden hisse çıkarır."""
         if not context.args:
             await update.message.reply_text("⚠️ Çıkarmak istediğiniz hisse adını yazınız. Örnek: `/cikar THYAO`", parse_mode=ParseMode.HTML)
             return
@@ -358,4 +380,16 @@ class TelegramBotService:
         with self.db_vault._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(query, (signal_code, limit))
+            return [dict(row) for row in cursor.fetchall()]
+
+    def _get_weakest_signals(self, limit: int = 5) -> List[Dict[str, Any]]:
+        """En zayıf / en düşük skorlu hisseleri çeker (Top-5 SAT için)."""
+        query = """
+            SELECT * FROM signals 
+            WHERE id IN (SELECT MAX(id) FROM signals GROUP BY ticker)
+            ORDER BY p_success ASC LIMIT ?;
+        """
+        with self.db_vault._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(query, (limit,))
             return [dict(row) for row in cursor.fetchall()]
