@@ -13,4 +13,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-CMD ["python", "financial_ai/background_scheduler.py"]
+CMD ["python", "-m", "financial_ai.main"]
