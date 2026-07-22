@@ -27,7 +27,7 @@ class TelegramBotService:
         self.db_vault = db_vault
         self.application: Optional[Application] = None
         self.loop: Optional[asyncio.AbstractEventLoop] = None
-        self.scheduler = None # MainOrchestrator tarafından set edilebilir
+        self.scheduler = None
 
     def start_bot(self):
         """Botu ana thread üzerinde async olarak başlatır."""
@@ -44,7 +44,7 @@ class TelegramBotService:
         self.application.run_polling(drop_pending_updates=True)
 
     # =========================================================================
-    # THREAD-SAFE DIŞ BİLDİRİM KÖPRÜSÜ (SCHEDULER THREAD'İ İÇİN)
+    # THREAD-SAFE DIŞ BİLDİRİM KÖPRÜSÜ
     # =========================================================================
     def send_notification_from_thread(self, ticker: str, alert_type: str, reason: str):
         if self.loop and self.loop.is_running():
@@ -131,8 +131,22 @@ class TelegramBotService:
         try:
             signals = await asyncio.to_thread(self._get_top_signals)
 
+            # DB henüz yazma aşamasındaysa veya boşsa anında canlı tarama yap
+            if not signals and self.scheduler and self.scheduler.primary_m:
+                df_live = pd.read_parquet("data/bist_2016_2026_adjusted.parquet")
+                tickers = ["THYAO", "GARAN", "ASELS", "EREGL", "SISE", "BIMAS", "KCHOL", "ARCLK"]
+                computed_signals = []
+                for t in tickers:
+                    try:
+                        res = await asyncio.to_thread(self.scheduler.evaluate_eod_signal, df_live, t)
+                        computed_signals.append(res)
+                    except Exception:
+                        pass
+                computed_signals.sort(key=lambda x: x.get('p_success', 0.0), reverse=True)
+                signals = computed_signals[:5]
+
             if not signals:
-                await update.message.reply_text("ℹ️ Veritabanında henüz taranmış hisse kaydı bulunamadı. Lütfen 10 saniye sonra tekrar `/scan` yazınız.")
+                await update.message.reply_text("ℹ️ Şu an evren taranıyor. Lütfen 5 saniye sonra tekrar `/scan` yazınız.")
                 return
 
             msg = "🏆 <b>YAPAY ZEKÂ BIST100 BAŞARI SKORU SIRALAMASI (TOP-5)</b>\n━━━━━━━━━━━━━━━━━━━━━\n\n"
@@ -159,7 +173,6 @@ class TelegramBotService:
         ticker = context.args[0].upper().strip()
         signal = await asyncio.to_thread(self.db_vault.get_last_signal, ticker)
 
-        # DB'de henüz yoksa ve scheduler bağlıysa anında canlı hesapla
         if not signal and self.scheduler and self.scheduler.primary_m:
             try:
                 df_live = pd.read_parquet("data/bist_2016_2026_adjusted.parquet")
