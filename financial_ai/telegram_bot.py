@@ -133,7 +133,6 @@ class TelegramBotService:
         advisory = html.escape(str(signal.get('revision_reason', 'NÖTR')))
         signal_code = signal.get('signal_code', 0)
 
-        # Nominal Hedef Fiyat ve Stop Loss Hesaplaması
         pct_target_low = max(7.5, (p_success - 50) * 1.5)
         pct_target_high = pct_target_low + 2.0
         pct_stop = -4.0
@@ -194,7 +193,7 @@ class TelegramBotService:
         try:
             signals_buy = await asyncio.to_thread(self._get_grouped_signals, 1, 5)
             signals_wait = await asyncio.to_thread(self._get_grouped_signals, 0, 5)
-            signals_sell = await asyncio.to_thread(self._get_weakest_signals, 5)
+            signals_sell = await asyncio.to_thread(self._get_grouped_signals, -1, 5)
 
             if not (signals_buy or signals_wait) and self.scheduler:
                 retries = 0
@@ -214,8 +213,7 @@ class TelegramBotService:
                             pass
                     signals_buy = [s for s in computed_signals if s['signal_code'] == 1][:5]
                     signals_wait = [s for s in computed_signals if s['signal_code'] == 0][:5]
-                    computed_signals.sort(key=lambda x: x.get('p_success', 0.0))
-                    signals_sell = computed_signals[:5]
+                    signals_sell = [s for s in computed_signals if s['signal_code'] == -1][:5]
 
             start_date = datetime.now().strftime("%d.%m.%Y")
             end_date = (datetime.now() + timedelta(days=30)).strftime("%d.%m.%Y")
@@ -247,14 +245,14 @@ class TelegramBotService:
             else:
                 msg += "<i>Nötr konumda hisse bulunmuyor.</i>\n"
 
-            msg += "\n🔴 <b>ZAYIF / UZAK DURULMASI GEREKEN HİSSELER (TOP-5 SAT):</b>\n"
+            msg += "\n🔴 <b>SAT / UZAK DURULMASI GEREKEN HİSSELER (TOP-5 SAT):</b>\n"
             if signals_sell:
                 for idx, sig in enumerate(signals_sell, 1):
                     raw_p = sig.get('current_price', 0.0)
                     cur_p = self._get_nominal_price(sig['ticker'], raw_p)
-                    msg += f"{idx}. <b>{html.escape(sig['ticker'])}</b> | Fiyat: {cur_p:.2f} TL ➔ Düşüş Eğilimi (Güven: %{sig.get('p_success',0.0)*100:.1f})\n"
+                    msg += f"{idx}. <b>{html.escape(sig['ticker'])}</b> | Fiyat: {cur_p:.2f} TL ➔ Acil Çıkış / Düşüş Riski Var\n"
             else:
-                msg += "<i>Şu an acil satılması gereken hisse bulunmuyor.</i>\n"
+                msg += "<i>Piyasada şu an acil satılması gereken riskli hisse bulunmuyor. Portföyler dengede.</i>\n"
 
             msg += "\n━━━━━━━━━━━━━━━━━━━━━\n💡 <i>Detaylı kart için: `/hisse HİSSE_KODU`</i>"
             await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
@@ -380,16 +378,4 @@ class TelegramBotService:
         with self.db_vault._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(query, (signal_code, limit))
-            return [dict(row) for row in cursor.fetchall()]
-
-    def _get_weakest_signals(self, limit: int = 5) -> List[Dict[str, Any]]:
-        """En zayıf / en düşük skorlu hisseleri çeker (Top-5 SAT için)."""
-        query = """
-            SELECT * FROM signals 
-            WHERE id IN (SELECT MAX(id) FROM signals GROUP BY ticker)
-            ORDER BY p_success ASC LIMIT ?;
-        """
-        with self.db_vault._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(query, (limit,))
             return [dict(row) for row in cursor.fetchall()]
