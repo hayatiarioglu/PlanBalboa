@@ -34,7 +34,6 @@ class DummyHealthCheckHandler(BaseHTTPRequestHandler):
         self.wfile.write(b"OK - BIST100 DSS v13.1 Engine Active")
 
     def log_message(self, format, *args):
-        # Render loglarını doldurmamak için HTTP isteklerini sessize al
         return
 
 
@@ -68,12 +67,15 @@ def main():
     logger.info("🤖 Telegram Bot Servisi hazırlanıyor...")
     telegram_bot = TelegramBotService(token=bot_token, chat_id=chat_id, db_vault=db_vault)
 
-    # 3. Background Scheduler'ı Oluştur ve Bot Köprüsünü Bağla
+    # 3. Background Scheduler'ı Oluştur
     logger.info("⏰ 7/24 Arka Plan Zamanlayıcısı yapılandırılıyor...")
     scheduler_service = BackgroundScheduler(
         db_vault=db_vault
     )
-    scheduler_service.initialize_models()
+    
+    # Model Başlatmasını Arka Plan Thread'inde Çalıştır (Bot'un Açılışını Bloke Etmesin)
+    init_thread = threading.Thread(target=scheduler_service.initialize_models, daemon=True)
+    init_thread.start()
 
     # Graceful Shutdown (Kibar Kapanma) Sinyal Yakalayıcıları
     def graceful_shutdown(signum, frame):
