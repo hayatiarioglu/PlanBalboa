@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  bist_ai_engine:
+    build: .
+    container_name: bist_ai_dss_v13
+    restart: unless-stopped
+    environment:
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+      - DB_PATH=/app/data/financial_ai.db
+      - TZ=Europe/Istanbul
+    volumes:
+      # Veritabanı kalıcılığı
+      - ./data:/app/data
+      # Model ağırlıkları persistence
+      - ./models:/app/models
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

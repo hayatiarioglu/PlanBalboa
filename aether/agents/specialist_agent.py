@@ -1,0 +1,65 @@
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import numpy as np
+from typing import Dict, Any
+
+class SpecialistAgentNetwork(nn.Module):
+    """
+    Tek bir varlığa (ör: THYAO, MGROS) özel Derin Nöral Ağ Modeli.
+    Varlığın 20-faktörlü mikro dinamiklerini ve davranışını öğrenir.
+    """
+    def __init__(self, input_dim: int = 20, hidden_dim: int = 64):
+        super(SpecialistAgentNetwork, self).__init__()
+        self.feature_extractor = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.LayerNorm(hidden_dim),
+            nn.GELU(),
+            nn.Dropout(0.15),
+            nn.Linear(hidden_dim, hidden_dim // 2),
+            nn.GELU(),
+            nn.Linear(hidden_dim // 2, 1) # Tekil Varlık Aylık Getiri Tahmini
+        )
+
+        
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.feature_extractor(x)
+
+class SpecialistAgent:
+    """
+    34 Varlığın Her Biri İçin Olağanüstü Profesyonel Uzman Varlık Ajanı.
+    """
+    def __init__(self, symbol: str, input_dim: int = 20, lr: float = 1e-3):
+        self.symbol = symbol
+        self.model = SpecialistAgentNetwork(input_dim=input_dim)
+        self.optimizer = optim.AdamW(self.model.parameters(), lr=lr, weight_decay=1e-4)
+        self.criterion = nn.SmoothL1Loss()
+        self.total_reward_score = 0.0
+
+    def predict(self, feature_vector: np.ndarray) -> float:
+        """
+        Varlığın 20-faktörlü öznitelik vektörünü alıp tahmini getirisini döner.
+        """
+        self.model.eval()
+        with torch.no_grad():
+            x_t = torch.tensor(feature_vector, dtype=torch.float32).unsqueeze(0) # (1, input_dim)
+            pred = self.model(x_t).item()
+        return pred
+
+    def update_agent(self, feature_vector: np.ndarray, actual_return: float, proximity_score: float) -> float:
+        """
+        Gerçekleşen getiri açıldığında ajanın kendi nöral ağırlıklarını günceller.
+        """
+        self.model.train()
+        self.optimizer.zero_grad()
+        
+        x_t = torch.tensor(feature_vector, dtype=torch.float32).unsqueeze(0)
+        y_t = torch.tensor([[actual_return]], dtype=torch.float32)
+        
+        pred = self.model(x_t)
+        loss = self.criterion(pred, y_t)
+        loss.backward()
+        self.optimizer.step()
+        
+        self.total_reward_score += proximity_score
+        return loss.item()

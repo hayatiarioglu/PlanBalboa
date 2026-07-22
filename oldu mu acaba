@@ -1,0 +1,133 @@
+# 🌌 AETHERFORECASTER-X v35 SOVEREIGN MASTER
+## 📜 Bütünü Kapsayan Stratejik Proje Sunumu ve Uygulama Planı
+
+---
+
+## 📑 İÇİNDEKİLER
+1. 🎯 **BÖLÜM 1: CEO & YATIRIMCI DECK’İ** (Değer Önerisi, Pazar Problemi, Rekabet Avantajı)
+2. 🏛️ **BÖLÜM 2: TEKNİK MİMARİ VE 13 ANAYASAL ZIRH** (Mühendisler için Matematiksel Çözümler)
+3. 📐 **BÖLÜM 3: BÜTÜNSEL SİSTEM AKIŞI** (Unified Master Pipeline Görseli)
+4. 🗓️ **BÖLÜM 4: PROJE UYGULAMA TAKVİMİ VE SPRINT PLANLAMASI** (Adım Adım Kodlama Hattı)
+
+---
+
+# 🎯 BÖLÜM 1: CEO & YATIRIMCI DECK’İ
+
+> [!IMPORTANT]
+> **Finansal Vizyon:** "Sermayeyi Korumak, Geleceği Öngörmekten Önce Gelir."
+
+### 1.1 Pazardaki Dev Acı (Neden Geleneksel AI Botları Batar?)
+Borsa İstanbul (BIST) ve küresel piyasalarda yapay zeka tabanlı al-sat yazılımlarının %90'ı canlıya çıktıktan birkaç ay sonra sermayeyi eritir. Bunun 3 ana nedeni vardır:
+* 🩸 **Sığ Tahtalarda Emir Kayması (Slippage):** Model kağıt üstünde %15 kar görür. Ancak 100M TL sermaye ile o emri bastığında piyasayı kendi alımıyla bozar, kar anında zarara dönüşür.
+* ⚡ **Kriz Anlarında Yapay Zeka Şizofrenisi (Distribution Shift):** Oynaklık patladığında eski sakin verilere alışmış modeller ne yapacağını bilemez ve zıt kararlarla fonu yakar.
+* ☠️ **Batan Hisseleri Unutma (Survivorship Bias):** Geçmişte iflas etmiş hisseler veri setinden silindiğinde yapay zeka felaketi öğrenemez ve aynı tuzaklara düşer.
+
+---
+
+### 1.2 AetherForecaster-X v35 Devrimi (Biz Neyi Farklı Yapıyoruz?)
+AetherForecaster-X bir "al-sat botu" değil; kurumsal fon boyutlarına (100M TL - 1B TL) duyarlı otonom bir **Portföy Karar ve İcra Motorudur**.
+
+* 🛡️ **Sermaye Ölçekli Likidite Zırhı:** Fon büyüdükçe sistem sığ tahtalara girmeyi kuadratik olarak engeller. Piyasayı kendi emirlerimizle bozmamız imkansızdır.
+* 🧠 **Çift Zekalı Nöral Ağ (PCGrad Multi-Head MMoE):** Hangi hissenin iyi olduğunu sıralayan zeka (Head A) ile kriz ortamını okuyup gerçek getiri tahmin eden zeka (Head B) ayrıştırılmıştır. İki zeka birbirini bozmaz, tamamlar.
+* 📊 **Kurşun Geçirmez Risk Motoru (Higham Spectral Newey-West):** Anlık gürültüyü krizden ayırır. Sistem kriz yokken parayı nakde gömmez, kriz varken de maceraya atılmaz.
+
+---
+
+# 🏛️ BÖLÜM 2: TEKNİK MİMARİ VE 13 ANAYASAL ZIRH
+
+Bu bölüm, yazılım ve quant mühendislerinin kod yazarken uymak zorunda olduğu 13 anayasal kuralı içerir.
+
+> [!WARNING]
+> Bu 13 zırhtan tek bir tanesinin çıkarılması, milyarlık fonun kilitlenmesine veya yapay zeka beyninin sıfırlanmasına neden olur.
+
+---
+
+### 🛡️ DİĞER YAPAY ZEKALARI VE DENETÇİLERİ SUSTURAN 3 MİKRO ZIRH
+
+#### 1. Look-Ahead Bias Zırhı: Historical Rolling Auction Ratio ($\text{MA}_{20}$)
+* **Problem:** Cuma 17:52 kapanış seansı oranı o günden çekilirse geleceğin verisi sızar!
+* **Kalıcı Çözüm:** Katsayı strictly son 20 günün hareketli ortalamasından çekilir: $\alpha_{\text{auction}} = \text{MA}_{20}(\alpha_{\text{historical}})$. Cuma 17:30 PIT kilitlenmesinden sonra canlı piyasadan veri sızamaz.
+
+#### 2. Gradient Saturation & Overflow Zırhı: Clamped Logit Differences
+* **Problem:** Sıcaklık $\tau \to 0$ iken PyTorch Sigmoid fonksiyonunda sayısal taşma (float overflow) yaşanır ve gradyanlar donar.
+* **Kalıcı Çözüm:** Soft-NDCG kayıp fonksiyonunda logit farkları strictly clamp edilir:
+  $$\Delta_{ij} = \text{clamp}\left( \frac{\hat{y}_i - \hat{y}_j}{\tau(e)}, \; -10.0, \; +10.0 \right), \quad \tau_{\min} \ge 0.10$$
+
+#### 3. Non-Convex Çöküş Zırhı: Higham Spectral Positive Definite Projection
+* **Problem:** Hisse sayısı bar sayısından büyük olduğunda ($N > T$) matris özdeğerleri negatife düşer ve QP Solver çöker.
+* **Kalıcı Çözüm:** Kovaryans matrisi Katman 3'e girmeden önce strictly projeksiyondan geçirilir:
+  $$\Sigma_{\text{weekly}}^{\text{mühürlü}} = \mathbf{V} \max(\mathbf{\Lambda}, \; 10^{-6}\mathbf{I}) \mathbf{V}^T$$
+
+---
+
+### 📋 TEMEL 10 MİMARİ KURAL (HIZLI KONTROL LİSTESİ)
+
+| # | Kural / Zırh | Problem | Kalıcı Çözüm |
+|---|---|---|---|
+| **4** | Positive IDCG | Batan hisselerin paydayı sıfırlaması (NaN loss) | Positive only IDCG & Additive External Delist Penalty |
+| **5** | `.detach()` Coupling | Head A ve Head B arasında gradyan sızıntısı | `input_HeadB = concat(logit_HeadA.detach(), V_hybrid)` |
+| **6** | Hessian Soft-Clipping | $W_{\text{total}}^2/\text{ADV}^2$ yüzünden solver çökmesi | Condition Number $\kappa(\mathbf{P}) < 10^4$ sabitlemesi |
+| **7** | Newey-West Scaling | Riskin 5 kat şişirilip nakde kaçılması | Otokorelasyon sönümlemesi ($\kappa_{\text{eff}} \approx 40-50$) |
+| **8** | Hybrid Volatility ($V_t^{\text{hybrid}}$)| GARCH(1,1)'in anlık kriz şoklarını kaçırması | EGARCH(1,1) + Parkinson Intraday birleşimi |
+| **9** | Effective ADV | Kapanış seansındaki sığlıkta slippage yemek | $\text{ADV}_{\text{effective}} = \text{ADV}_{20} \times \text{MA}_{20}(\alpha_{\text{auction}})$ |
+| **10**| Winsorized Scaler | Delist getirilerin diğer hedefleri 0.50'ye sıkıştırması | Robust Winsorized Normalization |
+| **11**| Scheduled Temperature | Sıcaklık yükseldikçe gradyanların durması | Varyansa değil Step Scheduled Decay'e bağlama |
+| **12**| PCGrad Optimizer | Multi-task gradyan çatışması (Negative Transfer) | Zıt gradyanları birbirine dik (orthogonal) yansıtma |
+| **13**| Strict Constraints | QP Solver amaç fonksiyonunun eksi sonsuza gitmesi | Strict kısıtlar: $u_i \ge 0, w_i \ge 0, w_{\text{cash}} \ge 0$ |
+
+---
+
+# 📐 BÖLÜM 3: BÜTÜNSEL SİSTEM AKIŞI (UNIFIED PIPELINE)
+
+```mermaid
+graph TD
+    subgraph Katman 1: PIT Data Lake & Higham Spectral Risk Engine
+        A1[Cuma 17:30 PIT Snapshot] -->|Look-Ahead Bias SIFIR| A2[Historical MA20 Auction Ratio]
+        A3[15dk Bar Getirileri] --> A4[Newey-West Autocorrelation Adjustment]
+        A4 --> A5(Higham Spectral PD Projection: V * max(Λ, 10^-6 I) * V^T)
+        A5 -->|Pozitif Tanımlı PD Matris| Sigma[Σ_weekly Mühürlü Risk Matrisi]
+    end
+
+    subgraph Katman 2: Clamped Scheduled Soft-NDCG & MMoE Brain
+        A1 --> B1(Head A: Soft-NDCG Sıralama)
+        B1 -->|Clamped Logits: clamp(Δy / τ, -10, +10)| LossA[Shifted Positive IDCG Loss]
+        B1 -->|logit_A.detach()| B2(Head B: Kardinal Getiri Regresyonu)
+        V_hyb[V_hybrid: EGARCH + Parkinson] --> B2
+        B2 --> LossB[Head B Loss]
+        LossA -->|PCGrad Orthogonal Projection| Trunk[MMoE Shared Experts]
+        LossB -->|PCGrad Orthogonal Projection| Trunk
+    end
+
+    subgraph Katman 3: Hessian-Clipped Capital & Bounded Convex QP Solver
+        B1 -.-> C1
+        B2 -->|Tahmini Getiriler| C1{OSQP / CVXPY Çözücü}
+        Sigma -->|Mühürlü Risk Matrisi| C1
+        ADV[ADV_effective = ADV_20 * MA_20(α_auction)] --> C1
+        W[Fon Sermayesi: W_total] --> C1
+        C1 -->|Kısıtlar: u >= 0, w >= 0, w_cash >= 0| C2[Kusursuz Portföy Ağırlıkları]
+    end
+```
+
+---
+
+# 🗓️ BÖLÜM 4: PROJE UYGULAMA TAKVİMİ VE SPRINT PLANLAMASI
+
+Geliştirme süreci risklerin sırayla sıfırlandığı 4 Sprint halinde yürütülecektir:
+
+```
+┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ SPRINT 1: Risk Engine & Veri Boru Hattı (Newey-West, Higham PD Projection, MA20 Auction Ratio)    │
+│ SPRINT 2: Volume-Penalized QP Solver (Sermaye Ölçeklemesi W_total, Strict u_i >= 0 Kısıtları)    │
+│ SPRINT 3: Yapay Zeka MMoE & Kayıp Fonksiyonları (Clamped Logit Differences, Positive IDCG Loss) │
+│ SPRINT 4: Trainer Engine & PCGrad Entegrasyonu (Uçtan Uca Simülasyon ve Canlı Testler)            │
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 🎯 Kalite Kontrol Kapıları (Quality Gates)
+* **Sprint 1 Gate:** Risk matrisinin en küçük özdeğerinin $\lambda_{\min} \ge 10^{-6}$ olması (Pozitif Tanımlılık garantisi).
+* **Sprint 2 Gate:** 1 Milyar TL sermaye simülasyonunda sığ tahtalara %0 kayma (Slippage) ile girilmesi.
+* **Sprint 3 Gate:** PyTorch autograd backprop adımlarında 10.000 epoch boyunca 0 adet `NaN` loss üretilmesi.
+* **Sprint 4 Gate:** BIST100 Benchmark'ına karşı risksiz ve tutarlı alpha üretimi.
+
+---
+**Sonuç:** AetherForecaster-X v35 Sovereign Master planı onaylandığı an, **Sprint 1 (`RiskEngine`)** kodlamasıyla geliştirme süreci başlayacaktır.
