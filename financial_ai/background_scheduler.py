@@ -19,9 +19,10 @@ class BackgroundScheduler:
     SÜRÜM 13.1 DSS OTONOM ARKA PLAN ZAMANLAYICISI VE KARAR MOTORU.
     1. 10:15 Saf Matematiksel Fiyat Sentineli.
     2. 18:15 Gün Sonu 19-Modüllü EOD Analizi ve SHAP Sürücü Analizi.
-    3. Halka Arz (60-Günü Dolmamış) Filtresi.
-    4. Tavan / Hedef Aşıldı (Kâr Al) Tetikleyicisi.
-    5. Kullanıcı Takip Listesi Otomatik Bildirim Döngüsü.
+    3. Dinamik Volatilite Duyarlı Hisse Özel Hedef Fiyatlar.
+    4. Halka Arz (60-Günü Dolmamış) Filtresi.
+    5. Tavan / Hedef Aşıldı (Kâr Al) Tetikleyicisi.
+    6. Kullanıcı Takip Listesi Otomatik Bildirim Döngüsü.
     """
 
     CONSOLIDATION_MATRIX = {
@@ -77,10 +78,10 @@ class BackgroundScheduler:
             return None
 
         latest_row = ticker_df.iloc[-1]
-        p_1015 = latest_row["close"]
-        prev_close = ticker_df.iloc[-2]["close"] if len(ticker_df) >= 2 else p_1015
+        p_1015 = float(latest_row["close"])
+        prev_close = float(ticker_df.iloc[-2]["close"]) if len(ticker_df) >= 2 else p_1015
 
-        atr_20 = latest_row.get("atr20", p_1015 * 0.02)
+        atr_20 = float(latest_row.get("atr20", p_1015 * 0.02))
         pct_change = (p_1015 - prev_close) / prev_close
         dynamic_stop_threshold = -max(1.8 * (atr_20 / prev_close), 0.04)
 
@@ -136,11 +137,17 @@ class BackgroundScheduler:
         last_state = last_signal["signal_code"] if last_signal and last_signal["signal_code"] is not None else 0
         days_held = (last_signal["days_held"] + 1) if last_signal and last_signal.get("days_held") is not None else 0
 
-        target_low = cur_price * 1.075
-        target_high = cur_price * 1.095
-        stop_loss = cur_price * 0.96
+        # Her Hisseye Özel Dinamik ATR ve Model Skorlu Kâr Hedefi & Stop-Loss
+        atr_20 = float(latest_row.get("atr20", cur_price * 0.02))
+        volatility_factor = max(1.5 * (atr_20 / cur_price), 0.05)
+        
+        target_pct_low = max(0.065, p_success * 0.15)
+        target_pct_high = target_pct_low + volatility_factor
 
-        atr_20 = latest_row.get("atr20", cur_price * 0.02)
+        target_low = cur_price * (1 + target_pct_low)
+        target_high = cur_price * (1 + target_pct_high)
+        stop_loss = cur_price * (1 - volatility_factor)
+
         prev_close = float(ticker_df.iloc[-2]["close"]) if len(ticker_df) >= 2 else cur_price
         pct_change = (cur_price - prev_close) / prev_close
         dynamic_stop_threshold = -max(1.8 * (atr_20 / prev_close), 0.04)
