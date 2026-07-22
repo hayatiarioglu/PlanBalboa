@@ -19,8 +19,7 @@ logger = logging.getLogger("TelegramBot")
 class TelegramBotService:
     """
     Sürüm 13.1 DSS Otonom Telegram Botu Core Servisi.
-    5 AL, 5 BEKLE, 5 SAT Katmanlı BIST100 Taraması, Dinamik Geri Sayım Sayacı
-    ve Ultra-Detaylı Sayısal Fırsat Kartları.
+    Açık Başlangıç-Bitiş Tarih Aralıklı, 5 AL 5 BEKLE 5 SAT Gruplu Kartlar.
     """
 
     def __init__(self, token: str, chat_id: str, db_vault: DatabaseVault):
@@ -84,7 +83,7 @@ class TelegramBotService:
             logger.error(f"Telegram alert gönderme hatası: {e}")
 
     # =========================================================================
-    # ULTRA-DETAYLI VE DİNAMİK GERİ SAYIMLI HTML KART JENERATÖRÜ
+    # BAŞLANGIÇ-BİTİŞ TARİH ARALIKLI HTML KART JENERATÖRÜ
     # =========================================================================
     def _format_opportunity_card(self, signal: Dict[str, Any]) -> str:
         ticker = html.escape(str(signal['ticker']))
@@ -96,11 +95,12 @@ class TelegramBotService:
         advisory = html.escape(str(signal.get('revision_reason', 'NÖTR')))
         signal_code = signal.get('signal_code', 0)
 
-        # Tarih ve Dinamik Geri Sayım Hesaplaması
-        analysis_date = datetime.now().strftime("%d.%m.%Y")
+        # Açık Başlangıç ve Bitiş Tarih Aralığı (Start Date ➔ Target End Date)
+        start_date = datetime.now().strftime("%d.%m.%Y")
+        end_date = (datetime.now() + timedelta(days=30)).strftime("%d.%m.%Y")
+        
         days_held = signal.get('days_held', 0)
         remaining_bus_days = max(20 - days_held, 1)
-        target_date = (datetime.now() + timedelta(days=remaining_bus_days * 1.5)).strftime("%d.%m.%Y")
 
         # Öngörülen % Değişim Hesaplaması
         if cur_price > 0:
@@ -115,8 +115,8 @@ class TelegramBotService:
         return (
             f"🎯 <b>YAPAY ZEKÂ FIRSAT UYARISI: {ticker}</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━━\n"
-            f"📅 <b>Analiz Tarihi:</b> <b>{analysis_date}</b>\n"
-            f"⏳ <b>Hedef Vade:</b> <b>{remaining_bus_days} İşlem Günü Kaldı (~{target_date})</b>\n\n"
+            f"📅 <b>HEDEF TARİH ARALIĞI:</b> <b>{start_date} ➔ {end_date}</b>\n"
+            f"⏳ <b>KALAN SÜRE:</b> <b>{remaining_bus_days} İşlem Günü</b> (Toplam 20 Günlük Vade)\n\n"
             f"❓ <b>NE YAPACAĞIZ?</b>\n"
             f"👉 <b>{action_text}</b>\n\n"
             f"📊 <b>GÜNCEL FİYAT VE HEDEF DETAYLARI:</b>\n"
@@ -155,7 +155,6 @@ class TelegramBotService:
             signals_wait = await asyncio.to_thread(self._get_grouped_signals, 0, 5)
             signals_sell = await asyncio.to_thread(self._get_grouped_signals, -1, 5)
 
-            # DB henüz doldurulmadıysa anında canlı tarama yap
             if not (signals_buy or signals_wait or signals_sell) and self.scheduler:
                 retries = 0
                 while self.scheduler.primary_m is None and retries < 15:
@@ -176,12 +175,12 @@ class TelegramBotService:
                     signals_wait = [s for s in computed_signals if s['signal_code'] == 0][:5]
                     signals_sell = [s for s in computed_signals if s['signal_code'] == -1][:5]
 
-            analysis_date = datetime.now().strftime("%d.%m.%Y")
-            target_date = (datetime.now() + timedelta(days=30)).strftime("%d.%m.%Y")
+            start_date = datetime.now().strftime("%d.%m.%Y")
+            end_date = (datetime.now() + timedelta(days=30)).strftime("%d.%m.%Y")
 
             msg = (
                 f"🏆 <b>YAPAY ZEKÂ BIST100 DETAYLI TARAMA RAPORU</b>\n"
-                f"📅 <b>Analiz Tarihi:</b> {analysis_date} | ⏳ <b>Vade:</b> ~{target_date}\n"
+                f"📅 <b>HEDEF TARİH ARALIĞI:</b> <b>{start_date} ➔ {end_date}</b> (20 İşlem Günü)\n"
                 f"━━━━━━━━━━━━━━━━━━━━━\n\n"
             )
 
@@ -220,7 +219,7 @@ class TelegramBotService:
             await update.message.reply_text("❌ Tarama yapılırken bir sistem hatası oluştu.")
 
     async def _cmd_hisse(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Tekil hisse sorgulaması. Sorgulanan hisseyi otomatik takibe alır."""
+        """Tekil hisse sorgulaması."""
         if not context.args:
             await update.message.reply_text("⚠️ Lütfen merak ettiğin hissenin adını yaz. Örnek: `/hisse THYAO`", parse_mode=ParseMode.HTML)
             return
