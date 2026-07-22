@@ -40,6 +40,7 @@ class DatabaseVault:
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     ticker TEXT NOT NULL,
                     timestamp TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+                    current_price REAL NOT NULL DEFAULT 0.0,
                     signal_code INTEGER NOT NULL,
                     p_success REAL NOT NULL,
                     p_success_prev REAL,
@@ -52,6 +53,12 @@ class DatabaseVault:
                     days_held INTEGER NOT NULL DEFAULT 0
                 );
             """)
+
+            # Mevcut veritabanlarında current_price sütununu güvenle ekle
+            try:
+                cursor.execute("ALTER TABLE signals ADD COLUMN current_price REAL DEFAULT 0.0;")
+            except sqlite3.OperationalError:
+                pass # Sütun zaten mevcutsa hatayı yut
 
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS watchlist (

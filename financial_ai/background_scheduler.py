@@ -42,7 +42,7 @@ class BackgroundScheduler:
         self.retrainer = ReTrainerVersion131(data_path)
         self.primary_m, self.meta_m, self.metrics = None, None, None
         self.df_processed = None
-        self.telegram_bot = None # MainOrchestrator tarafından set edilir
+        self.telegram_bot = None
 
     def initialize_models(self):
         """Modeli başlatır, ağırlıkları dondurur ve ilk açılış taramasını (Boot Sweep) yapar."""
@@ -72,7 +72,6 @@ class BackgroundScheduler:
         stop_loss_prev = last_signal["stop_loss_price"]
         ticker_df = df_live[df_live["ticker"] == ticker].sort_values("timestamp")
 
-        # 60 Günü Dolmamış Halka Arz Filtresi
         if len(ticker_df) < 60:
             logger.info(f"[IPO SKIP] {ticker} henüz 60 günlük veriye sahip değil, atlanıyor.")
             return None
@@ -114,12 +113,11 @@ class BackgroundScheduler:
 
         ticker_df = df_processed[df_processed["ticker"] == ticker].sort_values("timestamp")
         
-        # 60-Günü Dolmamış Halka Arz Güvenlik Filtresi
         if len(ticker_df) < 60:
             raise ValueError(f"{ticker} yeni halka arz olmuş bir şirket. En az 60 işlem günlük geçmişi birikene kadar kumar oynamamak için analize alınmaz.")
 
         latest_row = ticker_df.iloc[-1]
-        cur_price = latest_row["close"]
+        cur_price = float(latest_row["close"])
 
         feature_cols = [
             'pe_ratio_ranked', 'pb_ratio_ranked', 'ebitda_growth_ranked', 'roe_ranked', 
@@ -130,7 +128,7 @@ class BackgroundScheduler:
 
         class_probs = self.primary_m.predict_proba(X_sample)[0]
         p_bearish, p_neutral, p_bullish = class_probs[0], class_probs[1], class_probs[2]
-        p_success = self.meta_m.predict_proba(X_sample)[0, 1]
+        p_success = float(self.meta_m.predict_proba(X_sample)[0, 1])
 
         last_signal = self.db_vault.get_last_signal(ticker)
 
@@ -143,7 +141,7 @@ class BackgroundScheduler:
         stop_loss = cur_price * 0.96
 
         atr_20 = latest_row.get("atr20", cur_price * 0.02)
-        prev_close = ticker_df.iloc[-2]["close"] if len(ticker_df) >= 2 else cur_price
+        prev_close = float(ticker_df.iloc[-2]["close"]) if len(ticker_df) >= 2 else cur_price
         pct_change = (cur_price - prev_close) / prev_close
         dynamic_stop_threshold = -max(1.8 * (atr_20 / prev_close), 0.04)
 
@@ -152,7 +150,6 @@ class BackgroundScheduler:
 
         consolidated_signal_name, advisory = self.CONSOLIDATION_MATRIX.get((engine_b_sig, engine_a_sig), ("NOTR / NAKIT", "Islemsiz Bekle"))
 
-        # Karar Durum Mantığı
         if cur_price >= (last_signal["target_price_high"] if last_signal else target_high):
             current_signal_code = 0
             revision_reason = f"🚀 TAVAN / HEDEF AŞILDI! ({cur_price:.2f} TL) Kâr Al Vakti"
@@ -177,10 +174,10 @@ class BackgroundScheduler:
 
         self.db_vault.execute_write_async(
             """
-            INSERT INTO signals (ticker, signal_code, p_success, p_success_prev, stop_loss_price, target_price_low, target_price_high, engine_a_signal, engine_b_signal, revision_reason, days_held)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO signals (ticker, current_price, signal_code, p_success, p_success_prev, stop_loss_price, target_price_low, target_price_high, engine_a_signal, engine_b_signal, revision_reason, days_held)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (ticker, current_signal_code, float(p_success), float(p_success_prev), float(stop_loss), float(target_low), float(target_high), int(engine_a_sig), int(engine_b_sig), revision_reason, days_held)
+            (ticker, cur_price, current_signal_code, float(p_success), float(p_success_prev), float(stop_loss), float(target_low), float(target_high), int(engine_a_sig), int(engine_b_sig), revision_reason, days_held)
         )
 
         return {
