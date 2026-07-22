@@ -2,6 +2,8 @@ import os
 import sys
 import signal
 import logging
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from time import sleep
 
 # Guaranteed Directory Permissions Setup
@@ -23,10 +25,35 @@ logging.basicConfig(
 logger = logging.getLogger("MainOrchestrator")
 
 
+class DummyHealthCheckHandler(BaseHTTPRequestHandler):
+    """Render Web Service Port Binding için Basit HTTP Healthcheck Sunucusu."""
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-type", "text/plain; charset=utf-8")
+        self.end_headers()
+        self.wfile.write(b"OK - BIST100 DSS v13.1 Engine Active")
+
+    def log_message(self, format, *args):
+        # Render loglarını doldurmamak için HTTP isteklerini sessize al
+        return
+
+
+def start_dummy_healthcheck_server():
+    """Render'ın Port taramasını tatmin edecek 8080 / PORT HTTP sunucusu."""
+    port = int(os.getenv("PORT", 8080))
+    server = HTTPServer(("0.0.0.0", port), DummyHealthCheckHandler)
+    logger.info(f"🌐 Render HealthCheck HTTP Sunucusu Port {port} Üzerinde Başlatıldı.")
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+
 def main():
     logger.info("==================================================")
     logger.info("BIST100 Sürüm 13.1 DSS Otonom Motor Başlatılıyor...")
     logger.info("==================================================")
+
+    # Render Port Binding için HealthCheck Sunucusunu Başlat
+    start_dummy_healthcheck_server()
 
     # Environment Variables Kontrolü
     bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "MOCK_TELEGRAM_TOKEN")
