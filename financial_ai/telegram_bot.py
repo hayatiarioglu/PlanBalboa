@@ -2,6 +2,7 @@ import asyncio
 import logging
 import html
 import pandas as pd
+from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List
 from telegram import Update
 from telegram.constants import ParseMode
@@ -18,7 +19,7 @@ logger = logging.getLogger("TelegramBot")
 class TelegramBotService:
     """
     Sürüm 13.1 DSS Otonom Telegram Botu Core Servisi.
-    Sade Türkçe ile BIST100 Sıralaması, Fırsat Kartları ve Devre Kesici Uyarıları.
+    5 AL, 5 BEKLE, 5 SAT Katmanlı BIST100 Taraması, Tarih Damgalı Kartlar.
     """
 
     def __init__(self, token: str, chat_id: str, db_vault: DatabaseVault):
@@ -58,10 +59,12 @@ class TelegramBotService:
     async def _async_send_alert(self, ticker: str, alert_type: str, reason: str):
         try:
             safe_reason = html.escape(reason)
+            now_str = datetime.now().strftime("%d.%m.%Y %H:%M")
             if alert_type == "EMERGENCY_SAT":
                 msg = (
                     f"🚨 <b>ACİL UYARI: {ticker} İÇİN ÇIKIŞ ZAMANI!</b> 🚨\n"
                     f"━━━━━━━━━━━━━━━━━━━━━\n"
+                    f"📅 <b>Tarih:</b> {now_str}\n"
                     f"❓ <b>NE YAPACAĞIZ?</b>\n"
                     f"🔴 <b>HEMEN SAT / NAKİTE GEÇ!</b>\n\n"
                     f"💡 <b>NEDEN ÇIKIYORUZ?</b>\n"
@@ -69,7 +72,7 @@ class TelegramBotService:
                     f"🛡️ <i>Sermayeni Koruma Zırhı Devreye Girdi.</i>"
                 )
             else:
-                msg = f"🔔 <b>SİSTEM BİLDİRİMİ: {ticker}</b>\n━━━━━━━━━━━━━━━━━━━━━\n{safe_reason}"
+                msg = f"🔔 <b>SİSTEM BİLDİRİMİ: {ticker}</b> ({now_str})\n━━━━━━━━━━━━━━━━━━━━━\n{safe_reason}"
 
             await self.application.bot.send_message(
                 chat_id=self.chat_id,
@@ -80,7 +83,7 @@ class TelegramBotService:
             logger.error(f"Telegram alert gönderme hatası: {e}")
 
     # =========================================================================
-    # SADE VE NET HTML KART JENERATÖRÜ
+    # DETAYLI & TARİH DAMGALI HTML KART JENERATÖRÜ
     # =========================================================================
     def _format_opportunity_card(self, signal: Dict[str, Any]) -> str:
         ticker = html.escape(str(signal['ticker']))
@@ -91,11 +94,17 @@ class TelegramBotService:
         advisory = html.escape(str(signal.get('revision_reason', 'NÖTR')))
         signal_code = signal.get('signal_code', 0)
 
+        # Tarih Hesaplamaları (Bugünün Tarihi & 20 İşlem Günü / ~30 Takvim Günü Hedef Vade)
+        analysis_date = datetime.now().strftime("%d.%m.%Y")
+        target_date = (datetime.now() + timedelta(days=30)).strftime("%d.%m.%Y")
+
         action_text = "🟢 AL / POZİSYON AÇ" if signal_code == 1 else ("🔴 SAT / NAKİTE GEÇ" if signal_code == -1 else "🟡 BEKLE / NAKİTTE KAL")
 
         return (
             f"🎯 <b>YAPAY ZEKÂ FIRSAT UYARISI: {ticker}</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━━\n"
+            f"📅 <b>Analiz Tarihi:</b> <b>{analysis_date}</b>\n"
+            f"⏳ <b>Hedef Vade:</b> <b>20 İşlem Günü (~{target_date})</b>\n\n"
             f"❓ <b>NE YAPACAĞIZ?</b>\n"
             f"👉 <b>{action_text}</b>\n\n"
             f"💡 <b>NEDEN BU KARAR VERİLDİ?</b>\n"
@@ -103,7 +112,7 @@ class TelegramBotService:
             f"• <b>Tahmin Başarı Güveni:</b> %{p_success:.1f}\n"
             f"• <b>Model Notu:</b> {advisory}\n\n"
             f"🎯 <b>BEKLENEN HEDEF KÂR (20 GÜN):</b>\n"
-            f"• <b>Hedef Fiyat:</b> <b>{target_low:.2f} TL - {target_high:.2f} TL</b> (+7.5% ... +9.5%)\n\n"
+            f"• <b>Hedef Fiyat Bölgesi:</b> <b>{target_low:.2f} TL - {target_high:.2f} TL</b> (+7.5% ... +9.5%)\n\n"
             f"🛡️ <b>KORUMA BARIYERİ (STOP LOSS):</b>\n"
             f"• Fiyat <b>{stop_loss:.2f} TL</b> altına düşerse robot seni uyarır ve <i>'Zarar büyümeden çıkalım'</i> der.\n"
             f"━━━━━━━━━━━━━━━━━━━━━\n"
@@ -118,61 +127,52 @@ class TelegramBotService:
             "🤖 <b>Merhaba! Ben Senin 7/24 Otonom Borsa Asistanınım.</b>\n\n"
             "Hiçbir karmaşık terim kullanmadan, borsadaki en iyi fırsatları sana bildiririm.\n\n"
             "Kullanabileceğin Komutlar:\n"
-            "• `/scan` : BIST100 evrenini tarar ve en yüksek skorlu Top-5 hisseyi sıralar.\n"
-            "• `/hisse THYAO` : Yazdığın hisse için <i>'Ne yapalım, hedef ne?'</i> raporunu getirir.\n"
+            "• `/scan` : BIST100 evrenini tarar ve (5 AL, 5 BEKLE, 5 SAT) gruplu sıralama sunar.\n"
+            "• `/hisse THYAO` : Yazdığın hisse için <i>'Ne yapalım, hedef ne?'</i> detaylı kartını getirir.\n"
             "• `/durum` : Robotun çalışıp çalışmadığını kontrol eder."
         )
         await update.message.reply_text(welcome_txt, parse_mode=ParseMode.HTML)
 
     async def _cmd_scan(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Top-5 P(Success) Skorlu BIST100 Sıralamasını Getirir."""
-        await update.message.reply_text("🔎 <i>BIST100 evreni taranıyor ve başarı skoruna göre sıralanıyor...</i>", parse_mode=ParseMode.HTML)
+        """5 AL, 5 BEKLE, 5 SAT Gruplanmış 15 Hisselik BIST100 Taraması."""
+        await update.message.reply_text("🔎 <i>BIST100 evreni 5 AL, 5 BEKLE, 5 SAT gruplarıyla taranıyor...</i>", parse_mode=ParseMode.HTML)
 
         try:
-            signals = await asyncio.to_thread(self._get_top_signals)
+            signals_buy = await asyncio.to_thread(self._get_grouped_signals, 1, 5)
+            signals_wait = await asyncio.to_thread(self._get_grouped_signals, 0, 5)
+            signals_sell = await asyncio.to_thread(self._get_grouped_signals, -1, 5)
 
-            # DB henüz yazma aşamasındaysa veya boşsa anında canlı tarama yap
-            if not signals and self.scheduler:
-                # Modeller henüz arka planda yükleniyorsa 2 saniye bekle
-                retries = 0
-                while self.scheduler.primary_m is None and retries < 15:
-                    await asyncio.sleep(1)
-                    retries += 1
-                    signals = await asyncio.to_thread(self._get_top_signals)
-                    if signals:
-                        break
+            analysis_date = datetime.now().strftime("%d.%m.%Y")
+            target_date = (datetime.now() + timedelta(days=30)).strftime("%d.%m.%Y")
 
-                if not signals and self.scheduler.primary_m:
-                    df_live = pd.read_parquet("data/bist_2016_2026_adjusted.parquet")
-                    tickers = ["THYAO", "GARAN", "ASELS", "EREGL", "SISE", "BIMAS", "KCHOL", "ARCLK"]
-                    computed_signals = []
-                    for t in tickers:
-                        try:
-                            res = await asyncio.to_thread(self.scheduler.evaluate_eod_signal, df_live, t)
-                            computed_signals.append(res)
-                        except Exception:
-                            pass
-                    computed_signals.sort(key=lambda x: x.get('p_success', 0.0), reverse=True)
-                    signals = computed_signals[:5]
+            msg = (
+                f"🏆 <b>YAPAY ZEKÂ BIST100 DETAYLI TARAMA RAPORU</b>\n"
+                f"📅 <b>Analiz Tarihi:</b> {analysis_date} | ⏳ <b>Vade:</b> ~{target_date}\n"
+                f"━━━━━━━━━━━━━━━━━━━━━\n\n"
+            )
 
-            # Son güvenlik ağı: Eğer yine boşsa varsayılan BIST100 sıralamasını sun
-            if not signals:
-                signals = [
-                    {"ticker": "THYAO", "p_success": 0.56, "signal_code": 1},
-                    {"ticker": "GARAN", "p_success": 0.54, "signal_code": 0},
-                    {"ticker": "ASELS", "p_success": 0.53, "signal_code": 1},
-                    {"ticker": "EREGL", "p_success": 0.51, "signal_code": 0},
-                    {"ticker": "SISE", "p_success": 0.50, "signal_code": 0}
-                ]
+            # 🟢 5 AL HİSSESİ
+            msg += "🟢 <b>ALIM FIRSATI OLAN HİSSELER (TOP-5 AL):</b>\n"
+            if signals_buy:
+                for idx, sig in enumerate(signals_buy, 1):
+                    msg += f"{idx}. <b>{html.escape(sig['ticker'])}</b> | Güven: <b>%{sig['p_success']*100:.1f}</b> | Hedef: <b>{sig['target_price_low']:.2f} TL</b>\n"
+            else:
+                msg += "<i>Şu an yüksek olasılıklı alım sinyali veren hisse yok.</i>\n"
 
-            msg = "🏆 <b>YAPAY ZEKÂ BIST100 BAŞARI SKORU SIRALAMASI (TOP-5)</b>\n━━━━━━━━━━━━━━━━━━━━━\n\n"
-            for idx, sig in enumerate(signals, 1):
-                ticker = html.escape(str(sig['ticker']))
-                p_success = sig.get('p_success', 0.0) * 100
-                sig_code = sig.get('signal_code', 0)
-                durum = "🟢 AL" if sig_code == 1 else ("🔴 SAT" if sig_code == -1 else "🟡 BEKLE")
-                msg += f"<b>{idx}. {ticker}</b> | Güven: <b>%{p_success:.1f}</b> | Durum: <b>{durum}</b>\n"
-            
+            msg += "\n🟡 <b>NÖTR / POZİSYONU KORU HİSSELERİ (TOP-5 BEKLE):</b>\n"
+            if signals_wait:
+                for idx, sig in enumerate(signals_wait, 1):
+                    msg += f"{idx}. <b>{html.escape(sig['ticker'])}</b> | Güven: <b>%{sig['p_success']*100:.1f}</b>\n"
+            else:
+                msg += "<i>Nötr konumda hisse bulunmuyor.</i>\n"
+
+            msg += "\n🔴 <b>SAT / UZAK DURULMASI GEREKEN HİSSELER (TOP-5 SAT):</b>\n"
+            if signals_sell:
+                for idx, sig in enumerate(signals_sell, 1):
+                    msg += f"{idx}. <b>{html.escape(sig['ticker'])}</b> | Düşüş Riski Var\n"
+            else:
+                msg += "<i>Şu an acil satılması gereken hisse bulunmuyor.</i>\n"
+
             msg += "\n━━━━━━━━━━━━━━━━━━━━━\n💡 <i>Detaylı kart için: `/hisse HİSSE_KODU`</i>"
             await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
 
@@ -189,18 +189,12 @@ class TelegramBotService:
         ticker = context.args[0].upper().strip()
         signal = await asyncio.to_thread(self.db_vault.get_last_signal, ticker)
 
-        if not signal and self.scheduler:
-            retries = 0
-            while self.scheduler.primary_m is None and retries < 15:
-                await asyncio.sleep(1)
-                retries += 1
-
-            if self.scheduler.primary_m:
-                try:
-                    df_live = pd.read_parquet("data/bist_2016_2026_adjusted.parquet")
-                    signal = await asyncio.to_thread(self.scheduler.evaluate_eod_signal, df_live, ticker)
-                except Exception as e:
-                    logger.error(f"Canlı hisse hesaplama hatası ({ticker}): {e}")
+        if not signal and self.scheduler and self.scheduler.primary_m:
+            try:
+                df_live = pd.read_parquet("data/bist_2016_2026_adjusted.parquet")
+                signal = await asyncio.to_thread(self.scheduler.evaluate_eod_signal, df_live, ticker)
+            except Exception as e:
+                logger.error(f"Canlı hisse hesaplama hatası ({ticker}): {e}")
 
         if not signal:
             await update.message.reply_text(f"❌ <b>{ticker}</b> hissesi bulunamadı veya analiz henüz tamamlanmadı.", parse_mode=ParseMode.HTML)
@@ -219,14 +213,15 @@ class TelegramBotService:
         )
         await update.message.reply_text(status_txt, parse_mode=ParseMode.HTML)
 
-    def _get_top_signals(self) -> List[Dict[str, Any]]:
-        """DB'den en yüksek P(Success) skorlu ilk 5 hisseyi çeker."""
+    def _get_grouped_signals(self, signal_code: int, limit: int = 5) -> List[Dict[str, Any]]:
+        """DB'den belirli sinyal koduna göre gruplanmış ilk N hisseyi çeker."""
         query = """
             SELECT * FROM signals 
             WHERE id IN (SELECT MAX(id) FROM signals GROUP BY ticker)
-            ORDER BY p_success DESC LIMIT 5;
+            AND signal_code = ?
+            ORDER BY p_success DESC LIMIT ?;
         """
         with self.db_vault._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute(query)
+            cursor.execute(query, (signal_code, limit))
             return [dict(row) for row in cursor.fetchall()]
