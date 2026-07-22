@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import html
+import pandas as pd
 from typing import Optional, Dict, Any, List
 from telegram import Update
 from telegram.constants import ParseMode
@@ -17,7 +18,7 @@ logger = logging.getLogger("TelegramBot")
 class TelegramBotService:
     """
     Sürüm 13.1 DSS Otonom Telegram Botu Core Servisi.
-    Mesaj Dili: Sade, anlaşılır, salağa anlatır gibi net Türkçe (Ne Yapacağız? Neden? Nereye Kadar?).
+    Sade Türkçe ile BIST100 Sıralaması, Fırsat Kartları ve Devre Kesici Uyarıları.
     """
 
     def __init__(self, token: str, chat_id: str, db_vault: DatabaseVault):
@@ -26,6 +27,7 @@ class TelegramBotService:
         self.db_vault = db_vault
         self.application: Optional[Application] = None
         self.loop: Optional[asyncio.AbstractEventLoop] = None
+        self.scheduler = None # MainOrchestrator tarafından set edilebilir
 
     def start_bot(self):
         """Botu ana thread üzerinde async olarak başlatır."""
@@ -45,7 +47,6 @@ class TelegramBotService:
     # THREAD-SAFE DIŞ BİLDİRİM KÖPRÜSÜ (SCHEDULER THREAD'İ İÇİN)
     # =========================================================================
     def send_notification_from_thread(self, ticker: str, alert_type: str, reason: str):
-        """BackgroundScheduler thread'inden gelen acil durum mesajlarını güvenle aktarır."""
         if self.loop and self.loop.is_running():
             asyncio.run_coroutine_threadsafe(
                 self._async_send_alert(ticker, alert_type, reason),
@@ -55,7 +56,6 @@ class TelegramBotService:
             logger.error("Event loop aktif değil, bildirim gönderilemedi!")
 
     async def _async_send_alert(self, ticker: str, alert_type: str, reason: str):
-        """Async bildirim gönderici (Sade Anlaşılır Türkçe)."""
         try:
             safe_reason = html.escape(reason)
             if alert_type == "EMERGENCY_SAT":
@@ -69,11 +69,7 @@ class TelegramBotService:
                     f"🛡️ <i>Sermayeni Koruma Zırhı Devreye Girdi.</i>"
                 )
             else:
-                msg = (
-                    f"🔔 <b>SİSTEM BİLDİRİMİ: {ticker}</b>\n"
-                    f"━━━━━━━━━━━━━━━━━━━━━\n"
-                    f"{safe_reason}"
-                )
+                msg = f"🔔 <b>SİSTEM BİLDİRİMİ: {ticker}</b>\n━━━━━━━━━━━━━━━━━━━━━\n{safe_reason}"
 
             await self.application.bot.send_message(
                 chat_id=self.chat_id,
@@ -84,10 +80,9 @@ class TelegramBotService:
             logger.error(f"Telegram alert gönderme hatası: {e}")
 
     # =========================================================================
-    # SADE VE NET HTML KART JENERATÖRÜ (ÇOCUĞA ANLATIR GİBİ)
+    # SADE VE NET HTML KART JENERATÖRÜ
     # =========================================================================
     def _format_opportunity_card(self, signal: Dict[str, Any]) -> str:
-        """Sade Türkçe ile Neden - Ne Yapacağız - Nereye Kadar Kartı"""
         ticker = html.escape(str(signal['ticker']))
         p_success = signal.get('p_success', 0.0) * 100
         stop_loss = signal.get('stop_loss_price', 0.0)
@@ -96,7 +91,7 @@ class TelegramBotService:
         advisory = html.escape(str(signal.get('revision_reason', 'NÖTR')))
         signal_code = signal.get('signal_code', 0)
 
-        action_text = "🟢 AL / POZİSYON AÇ" if signal_code == 1 else ("🔴 SAT / NAKİTE GEÇ" if signal_code == -1 else "🟡 BEKLE / YENİ ALIM YAPMA")
+        action_text = "🟢 AL / POZİSYON AÇ" if signal_code == 1 else ("🔴 SAT / NAKİTE GEÇ" if signal_code == -1 else "🟡 BEKLE / NAKİTTE KAL")
 
         return (
             f"🎯 <b>YAPAY ZEKÂ FIRSAT UYARISI: {ticker}</b>\n"
@@ -116,40 +111,47 @@ class TelegramBotService:
         )
 
     # =========================================================================
-    # KOMUT İŞLEYİCİLERİ (COMMAND HANDLERS)
+    # KOMUT İŞLEYİCİLERİ
     # =========================================================================
     async def _cmd_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         welcome_txt = (
             "🤖 <b>Merhaba! Ben Senin 7/24 Otonom Borsa Asistanınım.</b>\n\n"
             "Hiçbir karmaşık terim kullanmadan, borsadaki en iyi fırsatları sana bildiririm.\n\n"
             "Kullanabileceğin Komutlar:\n"
-            "• `/scan` : Yapay zekânın bulduğu en iyi ilk 5 fırsatı gösterir.\n"
+            "• `/scan` : BIST100 evrenini tarar ve en yüksek skorlu Top-5 hisseyi sıralar.\n"
             "• `/hisse THYAO` : Yazdığın hisse için <i>'Ne yapalım, hedef ne?'</i> raporunu getirir.\n"
             "• `/durum` : Robotun çalışıp çalışmadığını kontrol eder."
         )
         await update.message.reply_text(welcome_txt, parse_mode=ParseMode.HTML)
 
     async def _cmd_scan(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Top-5 Aktif Fırsat Kartlarını getirir."""
-        await update.message.reply_text("🔎 <i>BIST100 evrenini senin için tarıyorum, lütfen 3 saniye bekle...</i>", parse_mode=ParseMode.HTML)
+        """Top-5 P(Success) Skorlu BIST100 Sıralamasını Getirir."""
+        await update.message.reply_text("🔎 <i>BIST100 evreni taranıyor ve başarı skoruna göre sıralanıyor...</i>", parse_mode=ParseMode.HTML)
 
         try:
             signals = await asyncio.to_thread(self._get_top_signals)
 
             if not signals:
-                await update.message.reply_text("ℹ️ Şu an yapay zekânın çok güvenli gördüğü bir alım fırsatı yok. Paşa paşa nakitte bekliyoruz.")
+                await update.message.reply_text("ℹ️ Veritabanında henüz taranmış hisse kaydı bulunamadı. Lütfen 10 saniye sonra tekrar `/scan` yazınız.")
                 return
 
-            for sig in signals:
-                card_html = self._format_opportunity_card(sig)
-                await update.message.reply_text(card_html, parse_mode=ParseMode.HTML)
+            msg = "🏆 <b>YAPAY ZEKÂ BIST100 BAŞARI SKORU SIRALAMASI (TOP-5)</b>\n━━━━━━━━━━━━━━━━━━━━━\n\n"
+            for idx, sig in enumerate(signals, 1):
+                ticker = html.escape(str(sig['ticker']))
+                p_success = sig.get('p_success', 0.0) * 100
+                sig_code = sig.get('signal_code', 0)
+                durum = "🟢 AL" if sig_code == 1 else ("🔴 SAT" if sig_code == -1 else "🟡 BEKLE")
+                msg += f"<b>{idx}. {ticker}</b> | Güven: <b>%{p_success:.1f}</b> | Durum: <b>{durum}</b>\n"
+            
+            msg += "\n━━━━━━━━━━━━━━━━━━━━━\n💡 <i>Detaylı kart için: `/hisse HİSSE_KODU`</i>"
+            await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
 
         except Exception as e:
             logger.error(f"/scan komut hatası: {e}")
             await update.message.reply_text("❌ Tarama yapılırken bir sistem hatası oluştu.")
 
     async def _cmd_hisse(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Tekil hisse sorgulaması."""
+        """Tekil hisse sorgulaması. DB'de yoksa canlı hesaplar."""
         if not context.args:
             await update.message.reply_text("⚠️ Lütfen merak ettiğin hissenin adını yaz. Örnek: `/hisse THYAO`", parse_mode=ParseMode.HTML)
             return
@@ -157,15 +159,22 @@ class TelegramBotService:
         ticker = context.args[0].upper().strip()
         signal = await asyncio.to_thread(self.db_vault.get_last_signal, ticker)
 
+        # DB'de henüz yoksa ve scheduler bağlıysa anında canlı hesapla
+        if not signal and self.scheduler and self.scheduler.primary_m:
+            try:
+                df_live = pd.read_parquet("data/bist_2016_2026_adjusted.parquet")
+                signal = await asyncio.to_thread(self.scheduler.evaluate_eod_signal, df_live, ticker)
+            except Exception as e:
+                logger.error(f"Canlı hisse hesaplama hatası ({ticker}): {e}")
+
         if not signal:
-            await update.message.reply_text(f"❌ <b>{ticker}</b> için veritabanımda henüz bir analiz kaydı yok.", parse_mode=ParseMode.HTML)
+            await update.message.reply_text(f"❌ <b>{ticker}</b> hissesi bulunamadı veya analiz henüz tamamlanmadı.", parse_mode=ParseMode.HTML)
             return
 
         card_html = self._format_opportunity_card(signal)
         await update.message.reply_text(card_html, parse_mode=ParseMode.HTML)
 
     async def _cmd_durum(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Sistem sağlık kontrolü."""
         status_txt = (
             "✅ <b>SİSTEM SAĞLIK RAPORU</b>\n\n"
             "• <b>Robot Durumu:</b> 7/24 Bulut Sunucuda Tıkır Tıkır Çalışıyor.\n"
@@ -176,11 +185,11 @@ class TelegramBotService:
         await update.message.reply_text(status_txt, parse_mode=ParseMode.HTML)
 
     def _get_top_signals(self) -> List[Dict[str, Any]]:
-        """DB'den en yüksek P(Success) skorlu aktif +1 sinyallerini çeker."""
+        """DB'den en yüksek P(Success) skorlu ilk 5 hisseyi çeker."""
         query = """
             SELECT * FROM signals 
-            WHERE signal_code = 1
-            ORDER BY timestamp DESC, p_success DESC LIMIT 5;
+            WHERE id IN (SELECT MAX(id) FROM signals GROUP BY ticker)
+            ORDER BY p_success DESC LIMIT 5;
         """
         with self.db_vault._get_connection() as conn:
             cursor = conn.cursor()
