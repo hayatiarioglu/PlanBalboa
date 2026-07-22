@@ -16,10 +16,17 @@ from financial_ai.database_vault import DatabaseVault
 
 logger = logging.getLogger("TelegramBot")
 
+BIST100_VALID_TICKERS = {
+    "THYAO", "GARAN", "ASELS", "EREGL", "SISE", "BIMAS", "KCHOL", "ARCLK", "TUPRS", "AKBNK",
+    "YKBNK", "SAHOL", "PETKM", "KOZAL", "PGSUS", "ISCTR", "HEKTS", "SASA", "VAKBN", "HALKB",
+    "TCELL", "TTKOM", "EKGYO", "TOASO", "FROTO", "ENKAI", "GUBRF", "ODAS", "KONTR", "SMRTG"
+}
+
 class TelegramBotService:
     """
     Sürüm 13.1 DSS Otonom Telegram Botu Core Servisi.
-    Açık Başlangıç-Bitiş Tarih Aralıklı, 5 AL 5 BEKLE 5 SAT Gruplu Kartlar.
+    Kullanıcı Özel Takip Listesi (/takip, /ekle, /cikar), Typo Toleransı,
+    Açık Başlangıç-Bitiş Tarih Aralıklı Kartlar ve Otomatik Bildirim Sistemi.
     """
 
     def __init__(self, token: str, chat_id: str, db_vault: DatabaseVault):
@@ -39,6 +46,9 @@ class TelegramBotService:
         self.application.add_handler(CommandHandler("start", self._cmd_start))
         self.application.add_handler(CommandHandler("scan", self._cmd_scan))
         self.application.add_handler(CommandHandler("hisse", self._cmd_hisse))
+        self.application.add_handler(CommandHandler("takip", self._cmd_takip))
+        self.application.add_handler(CommandHandler("ekle", self._cmd_ekle))
+        self.application.add_handler(CommandHandler("cikar", self._cmd_cikar))
         self.application.add_handler(CommandHandler("durum", self._cmd_durum))
 
         logger.info("Telegram Bot dinleyicisi başlatılıyor...")
@@ -71,8 +81,18 @@ class TelegramBotService:
                     f"{safe_reason}\n\n"
                     f"🛡️ <i>Sermayeni Koruma Zırhı Devreye Girdi.</i>"
                 )
+            elif alert_type == "TARGET_EXCEEDED":
+                msg = (
+                    f"🚀 <b>TAHMİN AŞILDI & TAVAN UYARISI: {ticker}!</b> 🚀\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━\n"
+                    f"📅 <b>Tarih:</b> {now_str}\n"
+                    f"❓ <b>NE YAPACAĞIZ?</b>\n"
+                    f"💰 <b>KÂRI CEBE KOY (KÂR AL)!</b>\n\n"
+                    f"💡 <b>GEREKÇE:</b>\n"
+                    f"{safe_reason}\n"
+                )
             else:
-                msg = f"🔔 <b>SİSTEM BİLDİRİMİ: {ticker}</b> ({now_str})\n━━━━━━━━━━━━━━━━━━━━━\n{safe_reason}"
+                msg = f"🔔 <b>TAKİP LİSTESİ BİLDİRİMİ: {ticker}</b> ({now_str})\n━━━━━━━━━━━━━━━━━━━━━\n{safe_reason}"
 
             await self.application.bot.send_message(
                 chat_id=self.chat_id,
@@ -95,14 +115,12 @@ class TelegramBotService:
         advisory = html.escape(str(signal.get('revision_reason', 'NÖTR')))
         signal_code = signal.get('signal_code', 0)
 
-        # Açık Başlangıç ve Bitiş Tarih Aralığı (Start Date ➔ Target End Date)
         start_date = datetime.now().strftime("%d.%m.%Y")
         end_date = (datetime.now() + timedelta(days=30)).strftime("%d.%m.%Y")
         
         days_held = signal.get('days_held', 0)
         remaining_bus_days = max(20 - days_held, 1)
 
-        # Öngörülen % Değişim Hesaplaması
         if cur_price > 0:
             pct_target_low = ((target_low - cur_price) / cur_price) * 100
             pct_target_high = ((target_high - cur_price) / cur_price) * 100
@@ -139,10 +157,13 @@ class TelegramBotService:
         welcome_txt = (
             "🤖 <b>Merhaba! Ben Senin 7/24 Otonom Borsa Asistanınım.</b>\n\n"
             "Hiçbir karmaşık terim kullanmadan, borsadaki en iyi fırsatları sana bildiririm.\n\n"
-            "Kullanabileceğin Komutlar:\n"
+            "📌 <b>KULLANABİLECEĞİN KOMUTLAR:</b>\n"
             "• `/scan` : BIST100 evrenini tarar ve (5 AL, 5 BEKLE, 5 SAT) gruplu sıralama sunar.\n"
-            "• `/hisse THYAO` : Yazdığın hisse için <i>'Ne yapalım, hedef ne?'</i> detaylı kartını getirir.\n"
-            "• `/durum` : Robotun çalışıp çalışmadığını kontrol eder."
+            "• `/hisse THYAO` : Yazdığın hisse için detaylı fırsat kartını getirir.\n"
+            "• `/takip` : Senin özel takip listendeki hisseleri ve canlı durumlarını listeler.\n"
+            "• `/ekle THYAO` : THYAO hissesini senin özel otomatik takip listene ekler.\n"
+            "• `/cikar THYAO` : THYAO hissesini takip listenden çıkarır.\n"
+            "• `/durum` : Robotun sağlık ve nöbet durumunu gösterir."
         )
         await update.message.reply_text(welcome_txt, parse_mode=ParseMode.HTML)
 
@@ -219,12 +240,21 @@ class TelegramBotService:
             await update.message.reply_text("❌ Tarama yapılırken bir sistem hatası oluştu.")
 
     async def _cmd_hisse(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Tekil hisse sorgulaması."""
+        """Tekil hisse sorgulaması. Otomatik olarak takip listesine kaydeder."""
         if not context.args:
             await update.message.reply_text("⚠️ Lütfen merak ettiğin hissenin adını yaz. Örnek: `/hisse THYAO`", parse_mode=ParseMode.HTML)
             return
 
-        ticker = context.args[0].upper().strip()
+        raw_ticker = context.args[0].strip().upper()
+
+        # Typo ve Validasyon Kontrolü
+        if raw_ticker not in BIST100_VALID_TICKERS and not raw_ticker.isalnum():
+            await update.message.reply_text(f"❌ <b>'{raw_ticker}'</b> adında geçerli bir BIST100 hissesi bulunamadı.\n💡 Örnek Kullanım: `/hisse THYAO`", parse_mode=ParseMode.HTML)
+            return
+
+        ticker = raw_ticker
+        self.db_vault.add_to_watchlist(ticker) # Otomatik Takibe Al
+
         signal = await asyncio.to_thread(self.db_vault.get_last_signal, ticker)
 
         if not signal and self.scheduler:
@@ -246,6 +276,67 @@ class TelegramBotService:
 
         card_html = self._format_opportunity_card(signal)
         await update.message.reply_text(card_html, parse_mode=ParseMode.HTML)
+
+    async def _cmd_takip(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Kullanıcının özel takip listesini ve canlı durumlarını sunar."""
+        watchlist = await asyncio.to_thread(self.db_vault.get_watchlist)
+
+        if not watchlist:
+            await update.message.reply_text(
+                "📋 <b>Özel Takip Listeniz Henüz Boş.</b>\n\n"
+                "Hisse eklemek için: `/ekle THYAO`\n"
+                "Hisse sormak için: `/hisse GARAN`",
+                parse_mode=ParseMode.HTML
+            )
+            return
+
+        msg = "📋 <b>SİZİN ÖZEL TAKİP LİSTENİZ VE CANLI SAĞLIK DURUMU</b>\n━━━━━━━━━━━━━━━━━━━━━\n\n"
+        for t in watchlist:
+            sig = await asyncio.to_thread(self.db_vault.get_last_signal, t)
+            if sig:
+                sig_code = sig.get('signal_code', 0)
+                cur_p = sig.get('current_price', 0.0)
+                durum = "🟢 AL" if sig_code == 1 else ("🔴 SAT" if sig_code == -1 else "🟡 BEKLE")
+                msg += f"• <b>{t}</b> | Fiyat: {cur_p:.2f} TL | Durum: <b>{durum}</b> (Güven: %{sig.get('p_success',0.0)*100:.1f})\n"
+            else:
+                msg += f"• <b>{t}</b> | <i>Analiz Bekleniyor...</i>\n"
+
+        msg += "\n━━━━━━━━━━━━━━━━━━━━━\n💡 <i>Hisse çıkarmak için: `/cikar HİSSE_KODU`</i>"
+        await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
+
+    async def _cmd_ekle(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Takip listesine hisse ekler."""
+        if not context.args:
+            await update.message.reply_text("⚠️ Eklemek istediğiniz hisse adını yazınız. Örnek: `/ekle THYAO`", parse_mode=ParseMode.HTML)
+            return
+
+        raw_ticker = context.args[0].strip().upper()
+
+        if raw_ticker not in BIST100_VALID_TICKERS and len(raw_ticker) > 6:
+            await update.message.reply_text(f"❌ <b>'{raw_ticker}'</b> adında geçerli bir BIST100 hissesi bulunamadı.", parse_mode=ParseMode.HTML)
+            return
+
+        ticker = raw_ticker
+        added = await asyncio.to_thread(self.db_vault.add_to_watchlist, ticker)
+
+        if added:
+            await update.message.reply_text(f"✅ <b>{ticker}</b> başarıyla özel takip listenize eklendi!\n📢 <i>Artık kararları değiştiğinde robot cebinize mesaj atacaktır.</i>", parse_mode=ParseMode.HTML)
+        else:
+            await update.message.reply_text(f"ℹ️ <b>{ticker}</b> zaten takip listenizde mevcut.", parse_mode=ParseMode.HTML)
+
+    async def _cmd_cikar(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Takip listesinden hisse çıkarır."""
+        if not context.args:
+            await update.message.reply_text("⚠️ Çıkarmak istediğiniz hisse adını yazınız. Örnek: `/cikar THYAO`", parse_mode=ParseMode.HTML)
+            return
+
+        ticker = context.args[0].strip().upper()
+        removed = await asyncio.to_thread(self.db_vault.remove_from_watchlist, ticker)
+
+        if removed:
+            await update.message.reply_text(f"🗑️ <b>{ticker}</b> özel takip listenizden çıkarıldı.", parse_mode=ParseMode.HTML)
+        else:
+            await update.message.reply_text(f"ℹ️ <b>{ticker}</b> zaten takip listenizde bulunmuyor.", parse_mode=ParseMode.HTML)
 
     async def _cmd_durum(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         status_txt = (

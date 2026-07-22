@@ -59,7 +59,8 @@ def main():
     telegram_bot = TelegramBotService(token=bot_token, chat_id=chat_id, db_vault=db_vault)
 
     scheduler_service = BackgroundScheduler(db_vault=db_vault)
-    telegram_bot.scheduler = scheduler_service # Bağımlılık Enjeksiyonu
+    telegram_bot.scheduler = scheduler_service
+    scheduler_service.telegram_bot = telegram_bot # Çift Yönlü Bağlantı
 
     init_thread = threading.Thread(target=scheduler_service.initialize_models, daemon=True)
     init_thread.start()

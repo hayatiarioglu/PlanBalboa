@@ -19,8 +19,9 @@ class BackgroundScheduler:
     SÜRÜM 13.1 DSS OTONOM ARKA PLAN ZAMANLAYICISI VE KARAR MOTORU.
     1. 10:15 Saf Matematiksel Fiyat Sentineli.
     2. 18:15 Gün Sonu 19-Modüllü EOD Analizi ve SHAP Sürücü Analizi.
-    3. Cold-Start Fallback (P_{t-1} = P_t) ve Hysteresis Buffer.
-    4. 9-Durumlu Eksiksiz Sinyal Konsolidasyon Matrisi.
+    3. Halka Arz (60-Günü Dolmamış) Filtresi.
+    4. Tavan / Hedef Aşıldı (Kâr Al) Tetikleyicisi.
+    5. Kullanıcı Takip Listesi Otomatik Bildirim Döngüsü.
     """
 
     CONSOLIDATION_MATRIX = {
@@ -41,6 +42,7 @@ class BackgroundScheduler:
         self.retrainer = ReTrainerVersion131(data_path)
         self.primary_m, self.meta_m, self.metrics = None, None, None
         self.df_processed = None
+        self.telegram_bot = None # MainOrchestrator tarafından set edilir
 
     def initialize_models(self):
         """Modeli başlatır, ağırlıkları dondurur ve ilk açılış taramasını (Boot Sweep) yapar."""
@@ -53,7 +55,7 @@ class BackgroundScheduler:
 
         # Açılış İlk Taraması (Boot Sweep) - Veritabanını Anında Doldurur
         logger.info("[SCHEDULER] Açılış Taraması (Boot Sweep) Başlatılıyor...")
-        tickers = ["THYAO", "GARAN", "ASELS", "EREGL", "SISE", "BIMAS", "KCHOL", "ARCLK"]
+        tickers = ["THYAO", "GARAN", "ASELS", "EREGL", "SISE", "BIMAS", "KCHOL", "ARCLK", "TUPRS", "AKBNK"]
         for t in tickers:
             try:
                 self.evaluate_eod_signal(self.df_processed, t)
@@ -69,7 +71,10 @@ class BackgroundScheduler:
 
         stop_loss_prev = last_signal["stop_loss_price"]
         ticker_df = df_live[df_live["ticker"] == ticker].sort_values("timestamp")
-        if ticker_df.empty:
+
+        # 60 Günü Dolmamış Halka Arz Filtresi
+        if len(ticker_df) < 60:
+            logger.info(f"[IPO SKIP] {ticker} henüz 60 günlük veriye sahip değil, atlanıyor.")
             return None
 
         latest_row = ticker_df.iloc[-1]
@@ -82,7 +87,7 @@ class BackgroundScheduler:
 
         if p_1015 <= stop_loss_prev or pct_change <= dynamic_stop_threshold:
             logger.warning(f"[10:15 GAP SENTINEL OVERRIDE] {ticker} - P_1015: {p_1015:.2f} TL (Stop: {stop_loss_prev:.2f} TL)")
-            return {
+            alert_res = {
                 "ticker": ticker,
                 "timestamp": latest_row["timestamp"],
                 "override_type": "EMERGENCY_GAP_STOP",
@@ -91,6 +96,11 @@ class BackgroundScheduler:
                 "pct_change": pct_change,
                 "reason": f"10:15 Anlık Fiyat ({p_1015:.2f} TL) Stop Loss ({stop_loss_prev:.2f} TL) Bariyerini Kırdı!"
             }
+
+            if self.telegram_bot:
+                self.telegram_bot.send_notification_from_thread(ticker, "EMERGENCY_SAT", alert_res["reason"])
+
+            return alert_res
         return None
 
     def evaluate_eod_signal(self, df_live: pd.DataFrame, ticker: str) -> Dict[str, Any]:
@@ -103,8 +113,10 @@ class BackgroundScheduler:
             df_processed = df_live
 
         ticker_df = df_processed[df_processed["ticker"] == ticker].sort_values("timestamp")
-        if ticker_df.empty:
-            raise ValueError(f"Ticker {ticker} dataset'te bulunamadı.")
+        
+        # 60-Günü Dolmamış Halka Arz Güvenlik Filtresi
+        if len(ticker_df) < 60:
+            raise ValueError(f"{ticker} yeni halka arz olmuş bir şirket. En az 60 işlem günlük geçmişi birikene kadar kumar oynamamak için analize alınmaz.")
 
         latest_row = ticker_df.iloc[-1]
         cur_price = latest_row["close"]
@@ -122,9 +134,9 @@ class BackgroundScheduler:
 
         last_signal = self.db_vault.get_last_signal(ticker)
 
-        # Cold-Start Fallback
         p_success_prev = last_signal["p_success"] if last_signal and last_signal["p_success"] is not None else p_success
         last_state = last_signal["signal_code"] if last_signal and last_signal["signal_code"] is not None else 0
+        days_held = (last_signal["days_held"] + 1) if last_signal and last_signal.get("days_held") is not None else 0
 
         target_low = cur_price * 1.075
         target_high = cur_price * 1.095
@@ -140,22 +152,35 @@ class BackgroundScheduler:
 
         consolidated_signal_name, advisory = self.CONSOLIDATION_MATRIX.get((engine_b_sig, engine_a_sig), ("NOTR / NAKIT", "Islemsiz Bekle"))
 
-        if pct_change <= dynamic_stop_threshold or p_success < 0.35 or (p_success < 0.45 and (last_signal is None or last_signal.get("days_held", 5) >= 5)):
+        # Karar Durum Mantığı
+        if cur_price >= (last_signal["target_price_high"] if last_signal else target_high):
+            current_signal_code = 0
+            revision_reason = f"🚀 TAVAN / HEDEF AŞILDI! ({cur_price:.2f} TL) Kâr Al Vakti"
+            if self.telegram_bot and ticker in self.db_vault.get_watchlist():
+                self.telegram_bot.send_notification_from_thread(ticker, "TARGET_EXCEEDED", revision_reason)
+
+        elif pct_change <= dynamic_stop_threshold or p_success < 0.35 or (p_success < 0.45 and days_held >= 20):
             current_signal_code = -1 # SAT
             revision_reason = f"Acil Devre Kesici / Düsüs Trendi (P: %{p_success*100:.1f})"
+            if self.telegram_bot and last_state != -1 and ticker in self.db_vault.get_watchlist():
+                self.telegram_bot.send_notification_from_thread(ticker, "EMERGENCY_SAT", revision_reason)
+
         elif p_success >= 0.54 and p_success_prev >= 0.54:
             current_signal_code = 1 # AL
             revision_reason = f"2-Gunluk Teyitli Boga Trendi (P: %{p_success*100:.1f})"
+            if self.telegram_bot and last_state != 1 and ticker in self.db_vault.get_watchlist():
+                self.telegram_bot.send_notification_from_thread(ticker, "SIGNAL_BUY", revision_reason)
+
         else:
             current_signal_code = last_state if last_state != 0 or last_signal is not None else (1 if p_success >= 0.54 else 0)
             revision_reason = "Hysteresis Bolgesi - Pozisyon Korundu"
 
         self.db_vault.execute_write_async(
             """
-            INSERT INTO signals (ticker, signal_code, p_success, p_success_prev, stop_loss_price, target_price_low, target_price_high, engine_a_signal, engine_b_signal, revision_reason)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO signals (ticker, signal_code, p_success, p_success_prev, stop_loss_price, target_price_low, target_price_high, engine_a_signal, engine_b_signal, revision_reason, days_held)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (ticker, current_signal_code, float(p_success), float(p_success_prev), float(stop_loss), float(target_low), float(target_high), int(engine_a_sig), int(engine_b_sig), revision_reason)
+            (ticker, current_signal_code, float(p_success), float(p_success_prev), float(stop_loss), float(target_low), float(target_high), int(engine_a_sig), int(engine_b_sig), revision_reason, days_held)
         )
 
         return {
@@ -172,5 +197,6 @@ class BackgroundScheduler:
             "stop_loss": stop_loss,
             "engine_a_signal": engine_a_sig,
             "engine_b_signal": engine_b_sig,
-            "revision_reason": revision_reason
+            "revision_reason": revision_reason,
+            "days_held": days_held
         }
