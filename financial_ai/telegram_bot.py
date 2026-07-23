@@ -169,13 +169,26 @@ class TelegramBotService:
 
         if signal_code == 1:
             action_text = "🟢 AL / POZİSYON AÇ"
-            prediction_text = f"• 📈 <b>Öngörülen Kâr Potansiyeli:</b> +%{pct_target_low:.1f} ... +%{pct_target_high:.1f} (Yüksek Kâr Fırsatı)"
+            details_text = (
+                f"• 💵 <b>Güncel Borsa Fiyatı:</b> {cur_price:.2f} TL\n"
+                f"• 🎯 <b>Hedeflenen Fiyat:</b> {target_low:.2f} TL - {target_high:.2f} TL\n"
+                f"• 📈 <b>Öngörülen Kâr Potansiyeli:</b> +%{pct_target_low:.1f} ... +%{pct_target_high:.1f} (Yüksek Kâr Fırsatı)\n"
+                f"• 🛡️ <b>İzleyen Stop Loss:</b> {stop_loss:.2f} TL (%{pct_stop:.1f} Risk Sınırı)"
+            )
         elif signal_code == -1:
             action_text = "🔴 SAT / NAKİTE GEÇ"
-            prediction_text = f"• ⚠️ <b>Öngörülen Risk Sınırı:</b> -%{abs(pct_stop):.1f} (Destek Risk Seviyesi: {stop_loss:.2f} TL)"
+            details_text = (
+                f"• 💵 <b>Güncel Borsa Fiyatı:</b> {cur_price:.2f} TL\n"
+                f"• ⚠️ <b>Öngörülen Risk Sınırı:</b> -%{abs(pct_stop):.1f} Risk Bariyeri\n"
+                f"• 🛡️ <b>Kritik Destek / Stop Loss:</b> {stop_loss:.2f} TL (Nakit Koruma)"
+            )
         else:
             action_text = "🟡 BEKLE / NAKİTTE KAL"
-            prediction_text = f"• ⚖️ <b>Öngörülen Bant Hareket:</b> +%{pct_target_low:.1f} ... +%{pct_target_high:.1f} (Nötr / Yatay Trend)"
+            details_text = (
+                f"• 💵 <b>Güncel Borsa Fiyatı:</b> {cur_price:.2f} TL\n"
+                f"• ⚖️ <b>Öngörülen Bant Hareket:</b> +%{pct_target_low:.1f} ... +%{pct_target_high:.1f} (Nötr Trend)\n"
+                f"• 🛡️ <b>İzleyen Stop Loss:</b> {stop_loss:.2f} TL (%{pct_stop:.1f} Risk Sınırı)"
+            )
 
         return (
             f"🎯 <b>YAPAY ZEKÂ FIRSAT UYARISI: {ticker}</b>\n"
@@ -185,10 +198,7 @@ class TelegramBotService:
             f"❓ <b>NE YAPACAĞIZ?</b>\n"
             f"👉 <b>{action_text}</b>\n\n"
             f"📊 <b>GÜNCEL FİYAT VE HEDEF DETAYLARI:</b>\n"
-            f"• 💵 <b>Güncel Borsa Fiyatı:</b> {cur_price:.2f} TL\n"
-            f"• 🎯 <b>Hedeflenen Fiyat:</b> {target_low:.2f} TL - {target_high:.2f} TL\n"
-            f"{prediction_text}\n"
-            f"• 🛡️ <b>İzleyen Stop Loss:</b> {stop_loss:.2f} TL (%{pct_stop:.1f} Risk Sınırı)\n\n"
+            f"{details_text}\n\n"
             f"💡 <b>NEDEN BU KARAR VERİLDİ?</b>\n"
             f"Yapay zekâ 19 göstergeyi (Bilanço, Takas, Para Akışı) taradı.\n"
             f"• <b>Tahmin Başarı Güveni:</b> %{p_success:.1f}\n"
