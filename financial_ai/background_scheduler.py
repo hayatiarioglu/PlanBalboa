@@ -81,6 +81,7 @@ class BackgroundScheduler:
             logger.info("⏱️ [SCHEDULER] Arka plan periyodik zamanlayıcı nöbetçi döngüsü başlatıldı (TRT UTC+3).")
             last_run_date_1015 = None
             last_run_date_1815 = None
+            last_run_date_monthly = None
 
             while True:
                 try:
@@ -112,6 +113,12 @@ class BackgroundScheduler:
                                 except Exception as e:
                                     logger.error(f"[18:15 CRON ERROR] {t}: {e}")
 
+                    # Her Ayın 28'inde Saat 23:00 TRT - Şampiyon vs. Aday Model Kalibrasyonu
+                    elif time_str == "23:00" and now_trt.day >= 25 and last_run_date_monthly != date_str:
+                        logger.info(f"[CRON AYLIK KALİBRASYON] Şampiyon vs. Aday Model Yarışı Başlatılıyor ({date_str})...")
+                        last_run_date_monthly = date_str
+                        self.run_monthly_champion_challenger_retrain()
+
                 except Exception as e:
                     logger.error(f"[SCHEDULER LOOP ERROR] {e}")
 
@@ -119,6 +126,41 @@ class BackgroundScheduler:
 
         thread = threading.Thread(target=scheduler_loop, daemon=True)
         thread.start()
+
+    def run_monthly_champion_challenger_retrain(self) -> bool:
+        """
+        ŞAMPİYON VS. ADAY MODEL GATE (AYLIK OTONOM KALİBRASYON DÖNGÜSÜ).
+        1. Taze verilerle Aday Model (Challenger) eğitilir.
+        2. Son 1 ayın Out-Of-Sample verisinde Şampiyon ve Aday yarıştırılır.
+        3. Aday Model Şampiyon'dan üstünse diskteki ağırlıklar güncellenir.
+        4. Aksi halde Aday Model çöpe atılır, mevcut Şampiyon korunur.
+        """
+        logger.info("🏆 [MODEL GATE] Aylık Otonom Şampiyon vs. Aday Model Yarışı Başlatılıyor...")
+        try:
+            df_clean = self.retrainer.apply_anti_cheat_and_dynamic_features()
+            df_labeled = self.retrainer.apply_triple_barrier_and_return_weighting(df_clean)
+            challenger_primary, challenger_meta, metrics = self.retrainer.train_v131_models(df_labeled)
+
+            challenger_acc = metrics.get("test_accuracy", 0.0)
+            champion_acc = (self.metrics.get("test_accuracy", 0.50) if self.metrics else 0.50)
+
+            logger.info(f"🏆 [MODEL GATE] Şampiyon Başarısı: %{champion_acc*100:.2f} | Aday Başarısı: %{challenger_acc*100:.2f}")
+
+            if challenger_acc >= champion_acc:
+                logger.info("🎉 [MODEL GATE SWAP] Aday Model Şampiyonu Geçti! Ağırlıklar Disk Üzerinde Güncelleniyor...")
+                self.primary_m = challenger_primary
+                self.meta_m = challenger_meta
+                self.metrics = metrics
+                os.makedirs("models", exist_ok=True)
+                joblib.dump(challenger_primary, "models/primary_model.joblib")
+                joblib.dump(challenger_meta, "models/meta_model.joblib")
+                return True
+            else:
+                logger.info("🛡️ [MODEL GATE REJECT] Aday Model Şampiyonu Geçemedi. Mevcut En İyi Zeka Korundu.")
+                return False
+        except Exception as e:
+            logger.error(f"[MODEL GATE ERROR] Aylık kalibrasyon sırasında hata: {e}")
+            return False
 
     def evaluate_1015_gap_sentinel(self, df_live: pd.DataFrame, ticker: str) -> Optional[Dict[str, Any]]:
         """10:15 Saf Matematiksel Fiyat Bekçisi."""
