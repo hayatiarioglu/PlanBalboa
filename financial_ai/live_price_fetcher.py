@@ -1,4 +1,5 @@
 import logging
+import concurrent.futures
 import yfinance as yf
 from typing import Dict, Optional
 
@@ -30,33 +31,30 @@ NOMINAL_PRICE_MAP: Dict[str, float] = {
 
 _PRICE_CACHE: Dict[str, float] = {}
 
+def _fetch_yf_price(ticker: str) -> Optional[float]:
+    yf_symbol = f"{ticker}.IS"
+    t = yf.Ticker(yf_symbol)
+    info = getattr(t, "fast_info", None)
+    if info:
+        live_p = getattr(info, "last_price", None) or getattr(info, "previous_close", None)
+        if live_p and float(live_p) > 0:
+            return float(live_p)
+    return None
+
 def get_live_bist_price(ticker: str, fallback_price: Optional[float] = None) -> float:
-    """
-    Borsa İstanbul Canlı Fiyat Çekici (yfinance + Cache + Fallback).
-    1. yfinance (Yahoo Finance) üzerinden BIST canlı tahta fiyatını çeker (örn: ASELS.IS -> 67.50).
-    2. Ağ hatası veya borsa kapalıysa önbellek / NOMINAL_PRICE_MAP haritasını kullanır.
-    """
     clean_ticker = ticker.strip().upper()
+
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(_fetch_yf_price, clean_ticker)
+            live_p = future.result(timeout=2.5)
+            if live_p and live_p > 0:
+                _PRICE_CACHE[clean_ticker] = live_p
+                return live_p
+    except Exception as e:
+        logger.warning(f"[LIVE PRICE TIMEOUT] {clean_ticker} yfinance 2.5s içinde yanıt vermedi: {e}")
+
     if clean_ticker in _PRICE_CACHE:
         return _PRICE_CACHE[clean_ticker]
 
-    yf_symbol = f"{clean_ticker}.IS"
-    try:
-        t = yf.Ticker(yf_symbol)
-        info = getattr(t, "fast_info", None)
-        live_p = None
-        if info:
-            live_p = getattr(info, "last_price", None) or getattr(info, "previous_close", None)
-        
-        if live_p and float(live_p) > 0:
-            price_val = float(live_p)
-            _PRICE_CACHE[clean_ticker] = price_val
-            logger.info(f"✅ [LIVE PRICE] {clean_ticker}.IS Canlı BIST Fiyatı Çekildi: {price_val:.2f} TL")
-            return price_val
-    except Exception as e:
-        logger.warning(f"[LIVE PRICE WARNING] {clean_ticker} yfinance canlı fiyat çekilemedi: {e}")
-
-    # Fallback to NOMINAL_PRICE_MAP or fallback_price
-    fallback_val = NOMINAL_PRICE_MAP.get(clean_ticker, fallback_price or 100.0)
-    _PRICE_CACHE[clean_ticker] = fallback_val
-    return fallback_val
+    return NOMINAL_PRICE_MAP.get(clean_ticker, fallback_price or 100.0)
