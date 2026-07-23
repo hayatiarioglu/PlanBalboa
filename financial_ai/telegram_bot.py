@@ -153,9 +153,9 @@ class TelegramBotService:
         advisory = html.escape(str(signal.get('revision_reason', 'NÖTR')))
         signal_code = signal.get('signal_code', 0)
 
-        target_low = signal.get('target_low', cur_price * 1.075)
-        target_high = signal.get('target_high', cur_price * 1.095)
-        stop_loss = signal.get('stop_loss', cur_price * 0.96)
+        target_low = signal.get('target_low') or signal.get('target_price_low') or (cur_price * 1.075)
+        target_high = signal.get('target_high') or signal.get('target_price_high') or (cur_price * 1.095)
+        stop_loss = signal.get('stop_loss') or signal.get('stop_loss_price') or (cur_price * 0.96)
 
         pct_target_low = ((target_low / cur_price) - 1.0) * 100 if cur_price > 0 else 0.0
         pct_target_high = ((target_high / cur_price) - 1.0) * 100 if cur_price > 0 else 0.0
@@ -249,7 +249,7 @@ class TelegramBotService:
             if signals_buy:
                 for idx, sig in enumerate(signals_buy, 1):
                     cur_p = sig.get('current_price', 0.0)
-                    t_low = sig.get('target_low', cur_p * 1.075)
+                    t_low = sig.get('target_low') or sig.get('target_price_low') or (cur_p * 1.075)
                     pct = ((t_low / cur_p) - 1.0) * 100 if cur_p > 0 else 0.0
                     msg += f"{idx}. <b>{html.escape(sig['ticker'])}</b> | Fiyat: {cur_p:.2f} TL ➔ Hedef: <b>{t_low:.2f} TL (+%{pct:.1f})</b> | Güven: %{sig['p_success']*100:.1f}\n"
             else:
@@ -267,8 +267,8 @@ class TelegramBotService:
             if signals_sell:
                 for idx, sig in enumerate(signals_sell, 1):
                     cur_p = sig.get('current_price', 0.0)
-                    s_loss = sig.get('stop_loss', cur_p * 0.95)
-                    pct_risk = ((cur_p - s_loss) / cur_p) * 100 if cur_p > 0 else 0.0
+                    s_loss = sig.get('stop_loss') or sig.get('stop_loss_price') or (cur_p * 0.95)
+                    pct_risk = abs(((cur_p - s_loss) / cur_p) * 100) if cur_p > 0 else 0.0
                     msg += f"{idx}. <b>{html.escape(sig['ticker'])}</b> | Fiyat: {cur_p:.2f} TL ➔ Destek Risk: <b>{s_loss:.2f} TL (-%{pct_risk:.1f})</b> | Güven: %{sig['p_success']*100:.1f}\n"
             else:
                 msg += "<i>Acil sat sinyali veren hisse bulunmuyor.</i>\n"
