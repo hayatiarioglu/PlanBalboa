@@ -80,7 +80,7 @@ class BackgroundScheduler:
         tickers = [t for t in self.df_processed['ticker'].unique() if not str(t).startswith("DELIST")]
         for t in tickers:
             try:
-                self.evaluate_eod_signal(self.df_processed, t)
+                self.evaluate_eod_signal(self.retrainer.df, t)
             except Exception as e:
                 logger.error(f"[BOOT SWEEP ERROR] {t}: {e}")
         logger.info(f"[SCHEDULER] Açılış Taraması {len(tickers)} Hisse İçin Tamamlandı. Veritabanı Hazır.")
