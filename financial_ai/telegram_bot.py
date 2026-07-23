@@ -75,12 +75,6 @@ class TelegramBotService:
         self.application.add_handler(CommandHandler("durum", self._cmd_durum))
 
         logger.info("Telegram Bot dinleyicisi başlatılıyor...")
-        try:
-            asyncio.run(self.application.bot.delete_webhook(drop_pending_updates=True))
-            logger.info("🧹 Eski Telegram Webhook kaydı silindi, Long Polling aktif edildi.")
-        except Exception as e:
-            logger.warning(f"Webhook temizleme uyarısı: {e}")
-
         self.application.run_polling(drop_pending_updates=True)
 
     # =========================================================================
