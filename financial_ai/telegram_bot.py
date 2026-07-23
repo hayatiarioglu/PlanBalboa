@@ -9,6 +9,8 @@ from telegram.constants import ParseMode
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
+    MessageHandler,
+    filters,
     ContextTypes,
     Application
 )
@@ -89,9 +91,10 @@ class TelegramBotService:
         self.application.add_handler(CommandHandler("ekle", self._cmd_ekle))
         self.application.add_handler(CommandHandler("cikar", self._cmd_cikar))
         self.application.add_handler(CommandHandler("durum", self._cmd_durum))
+        self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self._cmd_text_fallback))
 
         logger.info("Telegram Bot dinleyicisi başlatılıyor...")
-        self.application.run_polling(drop_pending_updates=True)
+        self.application.run_polling(drop_pending_updates=False)
 
     # =========================================================================
     # THREAD-SAFE DIŞ BİLDİRİM KÖPRÜSÜ
@@ -334,6 +337,17 @@ class TelegramBotService:
 
         card_html = self._format_opportunity_card(signal)
         await update.message.reply_text(card_html, parse_mode=ParseMode.HTML)
+
+    async def _cmd_text_fallback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Kullanıcı doğrudan 'THYAO' veya düz metin yazsa dahi akıllı yanıt üretir."""
+        if not update.message or not update.message.text:
+            return
+        raw_text = update.message.text.strip().upper()
+        if raw_text in BIST100_VALID_TICKERS or (len(raw_text) >= 3 and len(raw_text) <= 6 and raw_text.isalpha()):
+            context.args = [raw_text]
+            await self._cmd_hisse(update, context)
+        else:
+            await self._cmd_start(update, context)
 
     async def _cmd_takip(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Kullanıcının özel takip listesini ve canlı durumlarını sunar."""
