@@ -29,19 +29,6 @@ BIST100_VALID_TICKERS = {
     "BRYAT", "CWENE", "EGPRO", "EBEBK", "GWIND", "IMASM", "KAYSE", "KMPUR", "TABGD"
 }
 
-# BIST Nominal Ekran Fiyat Çarpanları (Kullanıcı Ekranı İçi Nominal Borsa Fiyatları)
-NOMINAL_PRICE_MAP = {
-    "THYAO": 838.41,
-    "GARAN": 115.50,
-    "ASELS": 370.00,
-    "EREGL": 58.40,
-    "SISE": 52.10,
-    "BIMAS": 540.00,
-    "KCHOL": 245.00,
-    "ARCLK": 165.00,
-    "TUPRS": 178.50,
-    "AKBNK": 64.20
-}
 
 class TelegramBotService:
     """
@@ -74,11 +61,6 @@ class TelegramBotService:
 
         logger.info("Telegram Bot dinleyicisi başlatılıyor...")
         self.application.run_polling(drop_pending_updates=True)
-
-    def _get_nominal_price(self, ticker: str, adj_price: float) -> float:
-        if ticker in NOMINAL_PRICE_MAP:
-            return NOMINAL_PRICE_MAP[ticker]
-        return adj_price
 
     # =========================================================================
     # THREAD-SAFE DIŞ BİLDİRİM KÖPRÜSÜ
@@ -133,20 +115,19 @@ class TelegramBotService:
     # =========================================================================
     def _format_opportunity_card(self, signal: Dict[str, Any]) -> str:
         ticker = html.escape(str(signal['ticker']))
-        raw_price = signal.get('current_price', 0.0)
-        cur_price = self._get_nominal_price(ticker, raw_price)
+        cur_price = signal.get('current_price', 0.0)
 
         p_success = signal.get('p_success', 0.0) * 100
         advisory = html.escape(str(signal.get('revision_reason', 'NÖTR')))
         signal_code = signal.get('signal_code', 0)
 
-        pct_target_low = max(7.5, (p_success - 50) * 1.5)
-        pct_target_high = pct_target_low + 2.0
-        pct_stop = -4.0
+        target_low = signal.get('target_low', cur_price * 1.075)
+        target_high = signal.get('target_high', cur_price * 1.095)
+        stop_loss = signal.get('stop_loss', cur_price * 0.96)
 
-        target_low = cur_price * (1 + (pct_target_low / 100))
-        target_high = cur_price * (1 + (pct_target_high / 100))
-        stop_loss = cur_price * (1 + (pct_stop / 100))
+        pct_target_low = ((target_low / cur_price) - 1.0) * 100 if cur_price > 0 else 0.0
+        pct_target_high = ((target_high / cur_price) - 1.0) * 100 if cur_price > 0 else 0.0
+        pct_stop = ((stop_loss / cur_price) - 1.0) * 100 if cur_price > 0 else 0.0
 
         start_date = datetime.now().strftime("%d.%m.%Y")
         end_date = (datetime.now() + timedelta(days=30)).strftime("%d.%m.%Y")
@@ -235,10 +216,9 @@ class TelegramBotService:
             msg += "🟢 <b>ALIM FIRSATI OLAN HİSSELER (TOP-5 AL):</b>\n"
             if signals_buy:
                 for idx, sig in enumerate(signals_buy, 1):
-                    raw_p = sig.get('current_price', 0.0)
-                    cur_p = self._get_nominal_price(sig['ticker'], raw_p)
-                    pct = max(7.5, (sig.get('p_success', 0.5) - 0.5) * 100 * 1.5)
-                    t_low = cur_p * (1 + (pct / 100))
+                    cur_p = sig.get('current_price', 0.0)
+                    t_low = sig.get('target_low', cur_p * 1.075)
+                    pct = ((t_low / cur_p) - 1.0) * 100 if cur_p > 0 else 0.0
                     msg += f"{idx}. <b>{html.escape(sig['ticker'])}</b> | Fiyat: {cur_p:.2f} TL ➔ Hedef: <b>{t_low:.2f} TL (+%{pct:.1f})</b> | Güven: %{sig['p_success']*100:.1f}\n"
             else:
                 msg += "<i>Şu an yüksek olasılıklı alım sinyali veren hisse yok.</i>\n"
@@ -246,8 +226,7 @@ class TelegramBotService:
             msg += "\n🟡 <b>NÖTR / POZİSYONU KORU HİSSELERİ (TOP-5 BEKLE):</b>\n"
             if signals_wait:
                 for idx, sig in enumerate(signals_wait, 1):
-                    raw_p = sig.get('current_price', 0.0)
-                    cur_p = self._get_nominal_price(sig['ticker'], raw_p)
+                    cur_p = sig.get('current_price', 0.0)
                     msg += f"{idx}. <b>{html.escape(sig['ticker'])}</b> | Fiyat: {cur_p:.2f} TL | Güven: %{sig['p_success']*100:.1f}\n"
             else:
                 msg += "<i>Nötr konumda hisse bulunmuyor.</i>\n"
@@ -255,8 +234,7 @@ class TelegramBotService:
             msg += "\n🔴 <b>SAT / UZAK DURULMASI GEREKEN HİSSELER (TOP-5 SAT):</b>\n"
             if signals_sell:
                 for idx, sig in enumerate(signals_sell, 1):
-                    raw_p = sig.get('current_price', 0.0)
-                    cur_p = self._get_nominal_price(sig['ticker'], raw_p)
+                    cur_p = sig.get('current_price', 0.0)
                     msg += f"{idx}. <b>{html.escape(sig['ticker'])}</b> | Fiyat: {cur_p:.2f} TL ➔ Acil Çıkış / Düşüş Riski Var (Güven: %{sig['p_success']*100:.1f})\n"
             else:
                 msg += "<i>Piyasada şu an acil satılması gereken riskli hisse bulunmuyor. Portföyler dengede.</i>\n"
@@ -326,8 +304,7 @@ class TelegramBotService:
             sig = await asyncio.to_thread(self.db_vault.get_last_signal, t)
             if sig:
                 sig_code = sig.get('signal_code', 0)
-                raw_p = sig.get('current_price', 0.0)
-                cur_p = self._get_nominal_price(t, raw_p)
+                cur_p = sig.get('current_price', 0.0)
                 durum = "🟢 AL" if sig_code == 1 else ("🔴 SAT" if sig_code == -1 else "🟡 BEKLE")
                 msg += f"• <b>{t}</b> | Fiyat: {cur_p:.2f} TL | Durum: <b>{durum}</b> (Güven: %{sig.get('p_success',0.0)*100:.1f})\n"
             else:
