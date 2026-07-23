@@ -232,16 +232,17 @@ class TelegramBotService:
             )
 
             # 🟢 10 AL HİSSESİ
-            msg += "🟢 <b>ALIM FIRSATI OLAN HİSSELER (TOP-10 AL):</b>\n"
+            if not signals_buy:
+                signals_buy = await asyncio.to_thread(self._get_top_score_signals, 10)
+
+            msg += "🟢 <b>ALIM VE YÜKSEK POTANSİYEL HİSSELERİ (TOP-10):</b>\n"
             if signals_buy:
                 for idx, sig in enumerate(signals_buy, 1):
                     raw_p = sig.get('current_price', 0.0)
                     cur_p = self._get_nominal_price(sig['ticker'], raw_p)
                     pct = max(7.5, (sig.get('p_success', 0.5) - 0.5) * 100 * 1.5)
                     t_low = cur_p * (1 + (pct / 100))
-                    msg += f"{idx}. <b>{html.escape(sig['ticker'])}</b> | Fiyat: {cur_p:.2f} TL ➔ Hedef: <b>{t_low:.2f} TL (+%{pct:.1f})</b> | Güven: %{sig['p_success']*100:.1f}\n"
-            else:
-                msg += "<i>Şu an yüksek olasılıklı alım sinyali veren hisse yok.</i>\n"
+                    msg += f"{idx}. <b>{html.escape(sig['ticker'])}</b> | Fiyat: {cur_p:.2f} TL ➔ Hedef: <b>{t_low:.2f} TL (+%{pct:.1f})</b> | Güven Skoru: %{sig['p_success']*100:.1f}\n"
 
             msg += "\n🟡 <b>NÖTR / POZİSYONU KORU HİSSELERİ (TOP-10 BEKLE):</b>\n"
             if signals_wait:
@@ -388,4 +389,15 @@ class TelegramBotService:
         with self.db_vault._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(query, (signal_code, limit))
+            return [dict(row) for row in cursor.fetchall()]
+
+    def _get_top_score_signals(self, limit: int = 10) -> List[Dict[str, Any]]:
+        query = """
+            SELECT * FROM signals 
+            WHERE id IN (SELECT MAX(id) FROM signals GROUP BY ticker)
+            ORDER BY p_success DESC LIMIT ?;
+        """
+        with self.db_vault._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(query, (limit,))
             return [dict(row) for row in cursor.fetchall()]
