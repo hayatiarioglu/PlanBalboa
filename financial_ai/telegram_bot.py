@@ -60,6 +60,12 @@ class TelegramBotService:
         self.application.add_handler(CommandHandler("durum", self._cmd_durum))
 
         logger.info("Telegram Bot dinleyicisi başlatılıyor...")
+        try:
+            asyncio.run(self.application.bot.delete_webhook(drop_pending_updates=True))
+            logger.info("🧹 Eski Telegram Webhook kaydı silindi, Long Polling aktif edildi.")
+        except Exception as e:
+            logger.warning(f"Webhook temizleme uyarısı: {e}")
+
         self.application.run_polling(drop_pending_updates=True)
 
     # =========================================================================
@@ -100,7 +106,12 @@ class TelegramBotService:
                     f"{safe_reason}\n"
                 )
             else:
-                msg = f"🔔 <b>TAKİP LİSTESİ BİLDİRİMİ: {ticker}</b> ({now_str})\n━━━━━━━━━━━━━━━━━━━━━\n{safe_reason}"
+                msg = (
+                    f"📢 <b>SİNYAL REVİZYONU: {ticker}</b>\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━\n"
+                    f"📅 <b>Tarih:</b> {now_str}\n"
+                    f"💡 <b>GEREKÇE:</b> {safe_reason}"
+                )
 
             await self.application.bot.send_message(
                 chat_id=self.chat_id,
@@ -108,15 +119,11 @@ class TelegramBotService:
                 parse_mode=ParseMode.HTML
             )
         except Exception as e:
-            logger.error(f"Telegram alert gönderme hatası: {e}")
+            logger.error(f"Telegram bildirim hatası ({ticker}): {e}")
 
-    # =========================================================================
-    # BAŞLANGIÇ-BİTİŞ TARİH ARALIKLI HTML KART JENERATÖRÜ
-    # =========================================================================
     def _format_opportunity_card(self, signal: Dict[str, Any]) -> str:
-        ticker = html.escape(str(signal['ticker']))
+        ticker = html.escape(signal['ticker'])
         cur_price = signal.get('current_price', 0.0)
-
         p_success = signal.get('p_success', 0.0) * 100
         advisory = html.escape(str(signal.get('revision_reason', 'NÖTR')))
         signal_code = signal.get('signal_code', 0)
@@ -229,33 +236,34 @@ class TelegramBotService:
                     cur_p = sig.get('current_price', 0.0)
                     msg += f"{idx}. <b>{html.escape(sig['ticker'])}</b> | Fiyat: {cur_p:.2f} TL | Güven: %{sig['p_success']*100:.1f}\n"
             else:
-                msg += "<i>Nötr konumda hisse bulunmuyor.</i>\n"
+                msg += "<i>Nötr pozisyonda hisse bulunmuyor.</i>\n"
 
-            msg += "\n🔴 <b>SAT / UZAK DURULMASI GEREKEN HİSSELER (TOP-5 SAT):</b>\n"
+            msg += "\n🔴 <b>SAT / NAKİTE GEÇ HİSSELERİ (TOP-5 SAT):</b>\n"
             if signals_sell:
                 for idx, sig in enumerate(signals_sell, 1):
                     cur_p = sig.get('current_price', 0.0)
-                    msg += f"{idx}. <b>{html.escape(sig['ticker'])}</b> | Fiyat: {cur_p:.2f} TL ➔ Acil Çıkış / Düşüş Riski Var (Güven: %{sig['p_success']*100:.1f})\n"
+                    msg += f"{idx}. <b>{html.escape(sig['ticker'])}</b> | Fiyat: {cur_p:.2f} TL | Güven: %{sig['p_success']*100:.1f}\n"
             else:
-                msg += "<i>Piyasada şu an acil satılması gereken riskli hisse bulunmuyor. Portföyler dengede.</i>\n"
+                msg += "<i>Acil sat sinyali veren hisse bulunmuyor.</i>\n"
 
-            msg += "\n━━━━━━━━━━━━━━━━━━━━━\n💡 <i>Detaylı kart için: `/hisse HİSSE_KODU`</i>"
+            msg += f"\n━━━━━━━━━━━━━━━━━━━━━\n🕒 <i>Sürüm 13.1 DSS | 7/24 Kesintisiz Otonom Borsa Asistanın</i>"
+
             await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
 
         except Exception as e:
-            logger.error(f"/scan komut hatası: {e}")
-            await update.message.reply_text("❌ Tarama yapılırken bir sistem hatası oluştu.")
+            logger.error(f"Scan hatası: {e}")
+            await update.message.reply_text(f"⚠️ Tarama sırasında hata oluştu: {e}")
 
     async def _cmd_hisse(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Tekil hisse sorgulaması. Otomatik olarak takip listesine kaydeder."""
+        """Spesifik bir hisse için detaylı fırsat kartı getirir."""
         if not context.args:
-            await update.message.reply_text("⚠️ Lütfen merak ettiğin hissenin adını yaz. Örnek: `/hisse THYAO`", parse_mode=ParseMode.HTML)
+            await update.message.reply_text("⚠️ Lütfen sorgulamak istediğiniz hisse adını yazınız. Örnek: `/hisse THYAO`", parse_mode=ParseMode.HTML)
             return
 
         raw_ticker = context.args[0].strip().upper()
 
-        if raw_ticker not in BIST100_VALID_TICKERS and not raw_ticker.isalnum():
-            await update.message.reply_text(f"❌ <b>'{raw_ticker}'</b> adında geçerli bir BIST100 hissesi bulunamadı.\n💡 Örnek Kullanım: `/hisse THYAO`", parse_mode=ParseMode.HTML)
+        if raw_ticker not in BIST100_VALID_TICKERS and len(raw_ticker) > 6:
+            await update.message.reply_text(f"❌ <b>'{raw_ticker}'</b> adında geçerli bir BIST100 hissesi bulunamadı.", parse_mode=ParseMode.HTML)
             return
 
         ticker = raw_ticker
@@ -308,9 +316,8 @@ class TelegramBotService:
                 durum = "🟢 AL" if sig_code == 1 else ("🔴 SAT" if sig_code == -1 else "🟡 BEKLE")
                 msg += f"• <b>{t}</b> | Fiyat: {cur_p:.2f} TL | Durum: <b>{durum}</b> (Güven: %{sig.get('p_success',0.0)*100:.1f})\n"
             else:
-                msg += f"• <b>{t}</b> | <i>Analiz Bekleniyor...</i>\n"
+                msg += f"• <b>{t}</b> | Veri Bekleniyor...\n"
 
-        msg += "\n━━━━━━━━━━━━━━━━━━━━━\n💡 <i>Hisse çıkarmak için: `/cikar HİSSE_KODU`</i>"
         await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
 
     async def _cmd_ekle(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
