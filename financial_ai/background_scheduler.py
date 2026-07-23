@@ -3,6 +3,7 @@ import sys
 import time
 import threading
 import logging
+import joblib
 import numpy as np
 import pandas as pd
 from typing import Dict, Any, List, Optional, Tuple
@@ -48,12 +49,19 @@ class BackgroundScheduler:
 
     def initialize_models(self):
         """Modeli başlatır, ağırlıkları dondurur ve ilk açılış taramasını (Boot Sweep) yapar."""
-        logger.info("[SCHEDULER] Sürüm 13.1 Modelleri Yükleniyor ve Eğitiliyor...")
-        df_clean = self.retrainer.apply_anti_cheat_and_dynamic_features()
-        df_labeled = self.retrainer.apply_triple_barrier_and_return_weighting(df_clean)
-        self.primary_m, self.meta_m, self.metrics = self.retrainer.train_v131_models(df_labeled)
-        self.df_processed = df_clean
-        logger.info("[SCHEDULER] Modeller Eğitildi ve Kalibre Edildi.")
+        if os.path.exists("models/primary_model.joblib") and os.path.exists("models/meta_model.joblib"):
+            logger.info("⚡ [SCHEDULER] Pre-trained Ağırlıklar Diskten Yükleniyor (0-Saniye Boot)...")
+            self.primary_m = joblib.load("models/primary_model.joblib")
+            self.meta_m = joblib.load("models/meta_model.joblib")
+            self.df_processed = self.retrainer.apply_anti_cheat_and_dynamic_features()
+            logger.info("✅ [SCHEDULER] Hazır Modeller Diskten Yüklendi ve Hazır.")
+        else:
+            logger.info("[SCHEDULER] Sürüm 13.1 Modelleri Yükleniyor ve Eğitiliyor...")
+            df_clean = self.retrainer.apply_anti_cheat_and_dynamic_features()
+            df_labeled = self.retrainer.apply_triple_barrier_and_return_weighting(df_clean)
+            self.primary_m, self.meta_m, self.metrics = self.retrainer.train_v131_models(df_labeled)
+            self.df_processed = df_clean
+            logger.info("[SCHEDULER] Modeller Eğitildi ve Kalibre Edildi.")
 
         # Açılış İlk Taraması (Boot Sweep) - Veritabanını Anında Doldurur (100 BIST100 Hissesinin Tamamı)
         logger.info("[SCHEDULER] Açılış Taraması (Boot Sweep) Başlatılıyor...")
