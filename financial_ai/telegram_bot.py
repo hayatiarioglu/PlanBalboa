@@ -245,22 +245,22 @@ class TelegramBotService:
                     msg += f"{idx}. <b>{html.escape(sig['ticker'])}</b> | Fiyat: {cur_p:.2f} TL ➔ Hedef: <b>{t_low:.2f} TL (+%{pct:.1f})</b> | Güven Skoru: %{sig['p_success']*100:.1f}\n"
 
             msg += "\n🟡 <b>NÖTR / POZİSYONU KORU HİSSELERİ (TOP-10 BEKLE):</b>\n"
+            if not signals_wait:
+                signals_wait = await asyncio.to_thread(self._get_middle_score_signals, 10, 10)
             if signals_wait:
                 for idx, sig in enumerate(signals_wait, 1):
                     raw_p = sig.get('current_price', 0.0)
                     cur_p = self._get_nominal_price(sig['ticker'], raw_p)
-                    msg += f"{idx}. <b>{html.escape(sig['ticker'])}</b> | Fiyat: {cur_p:.2f} TL | Güven: %{sig['p_success']*100:.1f}\n"
-            else:
-                msg += "<i>Nötr konumda hisse bulunmuyor.</i>\n"
+                    msg += f"{idx}. <b>{html.escape(sig['ticker'])}</b> | Fiyat: {cur_p:.2f} TL | Güven Skoru: %{sig['p_success']*100:.1f}\n"
 
             msg += "\n🔴 <b>SAT / UZAK DURULMASI GEREKEN HİSSELER (TOP-10 SAT):</b>\n"
+            if not signals_sell:
+                signals_sell = await asyncio.to_thread(self._get_bottom_score_signals, 10)
             if signals_sell:
                 for idx, sig in enumerate(signals_sell, 1):
                     raw_p = sig.get('current_price', 0.0)
                     cur_p = self._get_nominal_price(sig['ticker'], raw_p)
-                    msg += f"{idx}. <b>{html.escape(sig['ticker'])}</b> | Fiyat: {cur_p:.2f} TL ➔ Acil Çıkış / Düşüş Riski Var (Güven: %{sig['p_success']*100:.1f})\n"
-            else:
-                msg += "<i>Piyasada şu an acil satılması gereken riskli hisse bulunmuyor. Portföyler dengede.</i>\n"
+                    msg += f"{idx}. <b>{html.escape(sig['ticker'])}</b> | Fiyat: {cur_p:.2f} TL ➔ Düşük Skor / Düşüş Riski Var (Güven: %{sig['p_success']*100:.1f})\n"
 
             msg += "\n━━━━━━━━━━━━━━━━━━━━━\n💡 <i>Detaylı kart için: `/hisse HİSSE_KODU`</i>"
             await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
@@ -396,6 +396,28 @@ class TelegramBotService:
             SELECT * FROM signals 
             WHERE id IN (SELECT MAX(id) FROM signals GROUP BY ticker)
             ORDER BY p_success DESC LIMIT ?;
+        """
+        with self.db_vault._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(query, (limit,))
+            return [dict(row) for row in cursor.fetchall()]
+
+    def _get_middle_score_signals(self, offset: int = 10, limit: int = 10) -> List[Dict[str, Any]]:
+        query = """
+            SELECT * FROM signals 
+            WHERE id IN (SELECT MAX(id) FROM signals GROUP BY ticker)
+            ORDER BY p_success DESC LIMIT ? OFFSET ?;
+        """
+        with self.db_vault._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(query, (limit, offset))
+            return [dict(row) for row in cursor.fetchall()]
+
+    def _get_bottom_score_signals(self, limit: int = 10) -> List[Dict[str, Any]]:
+        query = """
+            SELECT * FROM signals 
+            WHERE id IN (SELECT MAX(id) FROM signals GROUP BY ticker)
+            ORDER BY p_success ASC LIMIT ?;
         """
         with self.db_vault._get_connection() as conn:
             cursor = conn.cursor()
