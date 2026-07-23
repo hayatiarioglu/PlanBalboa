@@ -229,12 +229,14 @@ class TelegramBotService:
 
     async def _cmd_scan(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """5 AL, 5 BEKLE, 5 SAT Gruplanmış Detaylı BIST100 Taraması."""
-        await update.message.reply_text("🔎 <i>BIST100 evreni (5 AL, 5 BEKLE, 5 SAT) gruplarıyla taranıyor...</i>", parse_mode=ParseMode.HTML)
-
         try:
-            if self.scheduler and self.scheduler.primary_m:
+            signals_buy = await asyncio.to_thread(self._get_grouped_signals, 1, 5)
+            signals_wait = await asyncio.to_thread(self._get_grouped_signals, 0, 5)
+            signals_sell = await asyncio.to_thread(self._get_grouped_signals, -1, 5)
+
+            if not (signals_buy or signals_wait or signals_sell) and self.scheduler and self.scheduler.primary_m:
                 df_live = pd.read_parquet("data/bist_2016_2026_adjusted.parquet")
-                tickers = [t for t in df_live['ticker'].unique() if not str(t).startswith("DELIST")]
+                tickers = [t for t in df_live['ticker'].unique() if not str(t).startswith("DELIST")][:15]
                 computed_signals = []
                 for t in tickers:
                     try:
@@ -245,10 +247,6 @@ class TelegramBotService:
                 signals_buy = sorted([s for s in computed_signals if s['signal_code'] == 1], key=lambda x: x['p_success'], reverse=True)[:5]
                 signals_wait = sorted([s for s in computed_signals if s['signal_code'] == 0], key=lambda x: x['p_success'], reverse=True)[:5]
                 signals_sell = sorted([s for s in computed_signals if s['signal_code'] == -1], key=lambda x: x['p_success'], reverse=True)[:5]
-            else:
-                signals_buy = await asyncio.to_thread(self._get_grouped_signals, 1, 5)
-                signals_wait = await asyncio.to_thread(self._get_grouped_signals, 0, 5)
-                signals_sell = await asyncio.to_thread(self._get_grouped_signals, -1, 5)
 
             start_date = datetime.now().strftime("%d.%m.%Y")
             end_date = (datetime.now() + timedelta(days=30)).strftime("%d.%m.%Y")
