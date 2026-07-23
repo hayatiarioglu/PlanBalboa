@@ -219,29 +219,23 @@ class TelegramBotService:
         await update.message.reply_text("🔎 <i>BIST100 evreni (5 AL, 5 BEKLE, 5 SAT) gruplarıyla taranıyor...</i>", parse_mode=ParseMode.HTML)
 
         try:
-            signals_buy = await asyncio.to_thread(self._get_grouped_signals, 1, 5)
-            signals_wait = await asyncio.to_thread(self._get_grouped_signals, 0, 5)
-            signals_sell = await asyncio.to_thread(self._get_grouped_signals, -1, 5)
-
-            if not (signals_buy or signals_wait) and self.scheduler:
-                retries = 0
-                while self.scheduler.primary_m is None and retries < 15:
-                    await asyncio.sleep(1)
-                    retries += 1
-
-                if self.scheduler.primary_m:
-                    df_live = pd.read_parquet("data/bist_2016_2026_adjusted.parquet")
-                    tickers = [t for t in df_live['ticker'].unique() if not str(t).startswith("DELIST")]
-                    computed_signals = []
-                    for t in tickers:
-                        try:
-                            res = await asyncio.to_thread(self.scheduler.evaluate_eod_signal, df_live, t)
-                            computed_signals.append(res)
-                        except Exception:
-                            pass
-                    signals_buy = [s for s in computed_signals if s['signal_code'] == 1][:5]
-                    signals_wait = [s for s in computed_signals if s['signal_code'] == 0][:5]
-                    signals_sell = [s for s in computed_signals if s['signal_code'] == -1][:5]
+            if self.scheduler and self.scheduler.primary_m:
+                df_live = pd.read_parquet("data/bist_2016_2026_adjusted.parquet")
+                tickers = [t for t in df_live['ticker'].unique() if not str(t).startswith("DELIST")]
+                computed_signals = []
+                for t in tickers:
+                    try:
+                        res = await asyncio.to_thread(self.scheduler.evaluate_eod_signal, df_live, t)
+                        computed_signals.append(res)
+                    except Exception:
+                        pass
+                signals_buy = sorted([s for s in computed_signals if s['signal_code'] == 1], key=lambda x: x['p_success'], reverse=True)[:5]
+                signals_wait = sorted([s for s in computed_signals if s['signal_code'] == 0], key=lambda x: x['p_success'], reverse=True)[:5]
+                signals_sell = sorted([s for s in computed_signals if s['signal_code'] == -1], key=lambda x: x['p_success'], reverse=True)[:5]
+            else:
+                signals_buy = await asyncio.to_thread(self._get_grouped_signals, 1, 5)
+                signals_wait = await asyncio.to_thread(self._get_grouped_signals, 0, 5)
+                signals_sell = await asyncio.to_thread(self._get_grouped_signals, -1, 5)
 
             start_date = datetime.now().strftime("%d.%m.%Y")
             end_date = (datetime.now() + timedelta(days=30)).strftime("%d.%m.%Y")
@@ -304,9 +298,8 @@ class TelegramBotService:
         ticker = raw_ticker
         self.db_vault.add_to_watchlist(ticker)
 
-        signal = await asyncio.to_thread(self.db_vault.get_last_signal, ticker)
-
-        if not signal and self.scheduler:
+        signal = None
+        if self.scheduler:
             retries = 0
             while self.scheduler.primary_m is None and retries < 15:
                 await asyncio.sleep(1)
@@ -321,6 +314,9 @@ class TelegramBotService:
                     return
                 except Exception as e:
                     logger.error(f"Canlı hisse hesaplama hatası ({ticker}): {e}")
+
+        if not signal:
+            signal = await asyncio.to_thread(self.db_vault.get_last_signal, ticker)
 
         if not signal:
             await update.message.reply_text(f"❌ <b>{ticker}</b> hissesi bulunamadı veya henüz 60 günlük verisi birikmedi.", parse_mode=ParseMode.HTML)
