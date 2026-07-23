@@ -280,27 +280,10 @@ class BackgroundScheduler:
 
         consolidated_signal_name, advisory = self.CONSOLIDATION_MATRIX.get((engine_b_sig, engine_a_sig), ("NOTR / NAKIT", "Islemsiz Bekle"))
 
-        if p_success >= 0.52:
-            target_pct_low = max(0.045, (p_success - 0.50) * 0.30 + volatility_factor)
-            target_pct_high = target_pct_low + volatility_factor
-            stop_pct = max(0.035, volatility_factor)
-        elif p_success < 0.40 or pct_change <= dynamic_stop_threshold:
-            target_pct_low = 0.0
-            target_pct_high = max(0.01, volatility_factor * 0.5)
-            stop_pct = max(0.045, volatility_factor * 1.3)
-        else:
-            target_pct_low = max(0.015, volatility_factor * 0.7)
-            target_pct_high = target_pct_low + volatility_factor * 0.8
-            stop_pct = max(0.035, volatility_factor)
-
-        target_low = cur_price * (1 + target_pct_low) * scale_factor
-        target_high = cur_price * (1 + target_pct_high) * scale_factor
-        stop_loss = cur_price * (1 - stop_pct) * scale_factor
         cur_price_adj = cur_price * scale_factor
+        target_check_temp = cur_price_adj * 1.095
 
-        target_check = target_high
-
-        if cur_price_adj >= target_check:
+        if cur_price_adj >= target_check_temp:
             current_signal_code = 0
             revision_reason = f"🚀 TAVAN / HEDEF AŞILDI! ({cur_price_adj:.2f} TL) Kâr Al Vakti"
             if self.telegram_bot and ticker in self.db_vault.get_watchlist():
@@ -321,6 +304,23 @@ class BackgroundScheduler:
         else:
             current_signal_code = last_state if last_state != 0 or last_signal is not None else (1 if p_success >= 0.52 else 0)
             revision_reason = "Hysteresis Bolgesi - Pozisyon Korundu"
+
+        if current_signal_code == 1:
+            target_pct_low = max(0.045, (p_success - 0.50) * 0.30 + volatility_factor)
+            target_pct_high = target_pct_low + volatility_factor
+            stop_pct = max(0.035, volatility_factor)
+        elif current_signal_code == -1:
+            target_pct_low = 0.0
+            target_pct_high = max(0.01, volatility_factor * 0.3)
+            stop_pct = max(0.045, volatility_factor * 1.3)
+        else:
+            target_pct_low = max(0.015, volatility_factor * 0.5)
+            target_pct_high = target_pct_low + volatility_factor * 0.7
+            stop_pct = max(0.035, volatility_factor)
+
+        target_low = cur_price * (1 + target_pct_low) * scale_factor
+        target_high = cur_price * (1 + target_pct_high) * scale_factor
+        stop_loss = cur_price * (1 - stop_pct) * scale_factor
 
         self.db_vault.execute_write_async(
             """
