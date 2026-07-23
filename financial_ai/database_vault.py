@@ -10,7 +10,7 @@ logger = logging.getLogger("DatabaseVault")
 class DatabaseVault:
     """
     THREAD-SAFE ASYNC WRITE-QUEUE SQLITE DATABASE VAULT.
-    SQLite WAL Mode + Async Queue Worker.
+    SQLite WAL Mode + Persistent Worker + Busy Timeout.
     Sürüm 13.1 DSS Sinyalleri ve Kullanıcı Özel Takip Listesi (Watchlist) Tabloları.
     """
 
@@ -26,10 +26,11 @@ class DatabaseVault:
         self.worker_thread.start()
 
     def _get_connection(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path, timeout=30.0)
+        conn = sqlite3.connect(self.db_path, timeout=60.0, check_same_thread=False)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL;")
         conn.execute("PRAGMA synchronous=NORMAL;")
+        conn.execute("PRAGMA busy_timeout=30000;")
         return conn
 
     def _init_db(self):
@@ -54,11 +55,10 @@ class DatabaseVault:
                 );
             """)
 
-            # Mevcut veritabanlarında current_price sütununu güvenle ekle
             try:
                 cursor.execute("ALTER TABLE signals ADD COLUMN current_price REAL DEFAULT 0.0;")
             except sqlite3.OperationalError:
-                pass # Sütun zaten mevcutsa hatayı yut
+                pass
 
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS watchlist (
@@ -67,13 +67,12 @@ class DatabaseVault:
                     added_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
                 );
             """)
-
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_signals_ticker_id ON signals(ticker, id);")
             conn.commit()
-        logger.info("SQLite WAL Veritabanı ve Watchlist Tablosu Başarıyla İlklendirildi.")
 
     def _write_worker(self):
-        while self.is_running or not self.write_queue.empty():
+        """Tek bir kalıcı bağlantı ile kuyruktaki yazma işlemlerini işler."""
+        conn = self._get_connection()
+        while self.is_running:
             try:
                 task = self.write_queue.get(timeout=1.0)
                 if task is None:
@@ -81,16 +80,20 @@ class DatabaseVault:
 
                 sql, params = task
                 try:
-                    with self._get_connection() as conn:
-                        cursor = conn.cursor()
-                        cursor.execute(sql, params)
-                        conn.commit()
+                    cursor = conn.cursor()
+                    cursor.execute(sql, params)
+                    conn.commit()
                 except Exception as e:
                     logger.error(f"Async DB Yazma Hatası: {e} | SQL: {sql}")
                 finally:
                     self.write_queue.task_done()
             except queue.Empty:
                 continue
+
+        try:
+            conn.close()
+        except Exception:
+            pass
 
     def execute_write_async(self, sql: str, params: tuple = ()):
         self.write_queue.put((sql, params))
@@ -100,37 +103,43 @@ class DatabaseVault:
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
-                cursor.execute(query, (ticker,))
+                cursor.execute(query, (ticker.upper(),))
                 row = cursor.fetchone()
                 return dict(row) if row else None
         except sqlite3.OperationalError:
             return None
 
     def add_to_watchlist(self, ticker: str) -> bool:
-        """Kullanıcının özel takip listesine hisse ekler."""
         sql = "INSERT OR IGNORE INTO watchlist (ticker) VALUES (?);"
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(sql, (ticker.upper(),))
-            conn.commit()
-            return cursor.rowcount > 0
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(sql, (ticker.upper(),))
+                conn.commit()
+                return cursor.rowcount > 0
+        except Exception:
+            return False
 
     def remove_from_watchlist(self, ticker: str) -> bool:
-        """Kullanıcının özel takip listesinden hisse çıkarır."""
         sql = "DELETE FROM watchlist WHERE ticker = ?;"
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(sql, (ticker.upper(),))
-            conn.commit()
-            return cursor.rowcount > 0
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(sql, (ticker.upper(),))
+                conn.commit()
+                return cursor.rowcount > 0
+        except Exception:
+            return False
 
     def get_watchlist(self) -> List[str]:
-        """Kullanıcının tüm özel takip hisselerini döner."""
         query = "SELECT ticker FROM watchlist ORDER BY id ASC;"
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(query)
-            return [row["ticker"] for row in cursor.fetchall()]
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(query)
+                return [row["ticker"] for row in cursor.fetchall()]
+        except Exception:
+            return []
 
     def close(self):
         self.is_running = False
