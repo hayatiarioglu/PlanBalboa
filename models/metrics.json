@@ -1,0 +1,8 @@
+{
+    "test_accuracy": 0.3508671621879169,
+    "prob_min": 0.15000000596046448,
+    "prob_max": 0.8499643802642822,
+    "prob_std": 0.05526582896709442,
+    "ticker_count": 99,
+    "test_sample_count": 36729
+}
