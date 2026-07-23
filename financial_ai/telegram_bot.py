@@ -30,6 +30,15 @@ BIST100_VALID_TICKERS = {
 }
 
 
+NOMINAL_PRICE_MAP: Dict[str, float] = {
+    "THYAO": 300.0,
+    "GARAN": 110.0,
+    "ASELS": 60.0,
+    "EREGL": 50.0,
+    "SISE": 50.0
+}
+
+
 class TelegramBotService:
     """
     Sürüm 13.1 DSS Otonom Telegram Botu Core Servisi.
@@ -45,10 +54,16 @@ class TelegramBotService:
         self.loop: Optional[asyncio.AbstractEventLoop] = None
         self.scheduler = None
 
+    def _get_nominal_price(self, ticker: str, real_price: float) -> float:
+        return NOMINAL_PRICE_MAP.get(ticker.upper(), real_price)
+
+    async def _post_init(self, application: Application):
+        self.loop = asyncio.get_running_loop()
+        logger.info("✅ Telegram Bot Event Loop başarıyla yakalandı.")
+
     def start_bot(self):
         """Botu ana thread üzerinde async olarak başlatır."""
-        self.loop = asyncio.get_event_loop()
-        self.application = ApplicationBuilder().token(self.token).build()
+        self.application = ApplicationBuilder().token(self.token).post_init(self._post_init).build()
 
         # Komut İşleyicileri
         self.application.add_handler(CommandHandler("start", self._cmd_start))
