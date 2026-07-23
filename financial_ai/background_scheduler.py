@@ -230,10 +230,12 @@ class BackgroundScheduler:
 
         ticker_df = df_processed[df_processed["ticker"] == ticker].sort_values("timestamp")
         if len(ticker_df) == 0:
-            raise ValueError(f"{ticker} için geçerli veri bulunamadı.")
+            raise ValueError(f"{ticker} için geçerli veri bulun났다.")
 
         latest_row = ticker_df.iloc[-1]
         cur_price = float(latest_row["close"])
+        cur_nominal_price = float(latest_row.get("close_nominal", cur_price))
+        scale_factor = cur_nominal_price / cur_price if cur_price != 0 else 1.0
 
         if hasattr(self.primary_m, "feature_names_in_"):
             feature_cols = list(self.primary_m.feature_names_in_)
@@ -271,9 +273,10 @@ class BackgroundScheduler:
         target_pct_low = max(0.065, p_success * 0.15)
         target_pct_high = target_pct_low + volatility_factor
 
-        target_low = cur_price * (1 + target_pct_low)
-        target_high = cur_price * (1 + target_pct_high)
-        stop_loss = cur_price * (1 - volatility_factor)
+        target_low = cur_price * (1 + target_pct_low) * scale_factor
+        target_high = cur_price * (1 + target_pct_high) * scale_factor
+        stop_loss = cur_price * (1 - volatility_factor) * scale_factor
+        cur_price_adj = cur_price * scale_factor
 
         prev_close = float(ticker_df.iloc[-2]["close"]) if len(ticker_df) >= 2 else cur_price
         pct_change = (cur_price - prev_close) / prev_close
@@ -287,9 +290,9 @@ class BackgroundScheduler:
         prev_target_high = last_signal.get("target_price_high") if last_signal else None
         target_check = prev_target_high if prev_target_high is not None else target_high
 
-        if cur_price >= target_check:
+        if cur_price_adj >= target_check:
             current_signal_code = 0
-            revision_reason = f"🚀 TAVAN / HEDEF AŞILDI! ({cur_price:.2f} TL) Kâr Al Vakti"
+            revision_reason = f"🚀 TAVAN / HEDEF AŞILDI! ({cur_price_adj:.2f} TL) Kâr Al Vakti"
             if self.telegram_bot and ticker in self.db_vault.get_watchlist():
                 self.telegram_bot.send_notification_from_thread(ticker, "TARGET_EXCEEDED", revision_reason)
 
@@ -314,13 +317,13 @@ class BackgroundScheduler:
             INSERT INTO signals (ticker, current_price, signal_code, p_success, p_success_prev, stop_loss_price, target_price_low, target_price_high, engine_a_signal, engine_b_signal, revision_reason, days_held)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (ticker, cur_price, current_signal_code, float(p_success), float(p_success_prev), float(stop_loss), float(target_low), float(target_high), int(engine_a_sig), int(engine_b_sig), revision_reason, days_held)
+            (ticker, cur_price_adj, current_signal_code, float(p_success), float(p_success_prev), float(stop_loss), float(target_low), float(target_high), int(engine_a_sig), int(engine_b_sig), revision_reason, days_held)
         )
 
         return {
             "ticker": ticker,
             "timestamp": latest_row["timestamp"],
-            "current_price": cur_price,
+            "current_price": cur_price_adj,
             "signal_code": current_signal_code,
             "consolidated_name": consolidated_signal_name,
             "advisory": advisory,

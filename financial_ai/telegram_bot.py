@@ -237,7 +237,7 @@ class TelegramBotService:
                     pct = ((t_low / cur_p) - 1.0) * 100 if cur_p > 0 else 0.0
                     msg += f"{idx}. <b>{html.escape(sig['ticker'])}</b> | Fiyat: {cur_p:.2f} TL ➔ Hedef: <b>{t_low:.2f} TL (+%{pct:.1f})</b> | Güven: %{sig['p_success']*100:.1f}\n"
             else:
-                msg += "<i>Şu an yüksek olasılıklı alım sinyali veren hisse yok.</i>\n"
+                msg += "<i>Şu an %52 güven eşiğini geçen AL sinyalli hisse yok. (Sermaye Koruma Modu)</i>\n"
 
             msg += "\n🟡 <b>NÖTR / POZİSYONU KORU HİSSELERİ (TOP-5 BEKLE):</b>\n"
             if signals_wait:
@@ -251,7 +251,9 @@ class TelegramBotService:
             if signals_sell:
                 for idx, sig in enumerate(signals_sell, 1):
                     cur_p = sig.get('current_price', 0.0)
-                    msg += f"{idx}. <b>{html.escape(sig['ticker'])}</b> | Fiyat: {cur_p:.2f} TL | Güven: %{sig['p_success']*100:.1f}\n"
+                    s_loss = sig.get('stop_loss', cur_p * 0.95)
+                    pct_risk = ((cur_p - s_loss) / cur_p) * 100 if cur_p > 0 else 0.0
+                    msg += f"{idx}. <b>{html.escape(sig['ticker'])}</b> | Fiyat: {cur_p:.2f} TL ➔ Destek Risk: <b>{s_loss:.2f} TL (-%{pct_risk:.1f})</b> | Güven: %{sig['p_success']*100:.1f}\n"
             else:
                 msg += "<i>Acil sat sinyali veren hisse bulunmuyor.</i>\n"
 
