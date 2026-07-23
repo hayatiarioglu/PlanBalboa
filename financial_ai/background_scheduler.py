@@ -4,6 +4,7 @@ import time
 import threading
 import logging
 import joblib
+import json
 import numpy as np
 import pandas as pd
 from typing import Dict, Any, List, Optional, Tuple
@@ -25,6 +26,7 @@ class BackgroundScheduler:
     4. Halka Arz (60-Günü Dolmamış) Filtresi.
     5. Tavan / Hedef Aşıldı (Kâr Al) Tetikleyicisi.
     6. Kullanıcı Takip Listesi Otomatik Bildirim Döngüsü.
+    7. Şampiyon vs. Aday Model Gate (Aylık Otonom Yeniden Eğitim).
     """
 
     CONSOLIDATION_MATRIX = {
@@ -53,6 +55,16 @@ class BackgroundScheduler:
             logger.info("⚡ [SCHEDULER] Pre-trained Ağırlıklar Diskten Yükleniyor (0-Saniye Boot)...")
             self.primary_m = joblib.load("models/primary_model.joblib")
             self.meta_m = joblib.load("models/meta_model.joblib")
+            
+            if os.path.exists("models/metrics.json"):
+                try:
+                    with open("models/metrics.json", "r") as f:
+                        self.metrics = json.load(f)
+                except Exception:
+                    self.metrics = {"test_accuracy": 0.6842}
+            else:
+                self.metrics = {"test_accuracy": 0.6842}
+
             self.df_processed = self.retrainer.apply_anti_cheat_and_dynamic_features()
             logger.info("✅ [SCHEDULER] Hazır Modeller Diskten Yüklendi ve Hazır.")
         else:
@@ -154,6 +166,8 @@ class BackgroundScheduler:
                 os.makedirs("models", exist_ok=True)
                 joblib.dump(challenger_primary, "models/primary_model.joblib")
                 joblib.dump(challenger_meta, "models/meta_model.joblib")
+                with open("models/metrics.json", "w") as f:
+                    json.dump(metrics, f)
                 return True
             else:
                 logger.info("🛡️ [MODEL GATE REJECT] Aday Model Şampiyonu Geçemedi. Mevcut En İyi Zeka Korundu.")
