@@ -288,8 +288,7 @@ class BackgroundScheduler:
 
         consolidated_signal_name, advisory = self.CONSOLIDATION_MATRIX.get((engine_b_sig, engine_a_sig), ("NOTR / NAKIT", "Islemsiz Bekle"))
 
-        prev_target_high = last_signal.get("target_price_high") if last_signal else None
-        target_check = prev_target_high if prev_target_high is not None else target_high
+        target_check = target_high
 
         if cur_price_adj >= target_check:
             current_signal_code = 0
