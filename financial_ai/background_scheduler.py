@@ -168,10 +168,13 @@ class BackgroundScheduler:
         else:
             df_processed = df_live
 
+        raw_ticker_df = df_live[df_live["ticker"] == ticker]
+        if len(raw_ticker_df) < 60:
+            raise ValueError(f"🛡️ {ticker} henüz 60 işlem gününü doldurmamış yeni bir halka arz şirketidir. Spekülatif tavan serisi riski nedeniyle analize alınmamaktadır.")
+
         ticker_df = df_processed[df_processed["ticker"] == ticker].sort_values("timestamp")
-        
-        if len(ticker_df) < 60:
-            raise ValueError(f"{ticker} yeni halka arz olmuş bir şirket. En az 60 işlem günlük geçmişi birikene kadar kumar oynamamak için analize alınmaz.")
+        if len(ticker_df) == 0:
+            raise ValueError(f"{ticker} için geçerli veri bulunamadı.")
 
         latest_row = ticker_df.iloc[-1]
         cur_price = float(latest_row["close"])
