@@ -54,15 +54,15 @@ class BackgroundScheduler:
         self.df_processed = df_clean
         logger.info("[SCHEDULER] Modeller Eğitildi ve Kalibre Edildi.")
 
-        # Açılış İlk Taraması (Boot Sweep) - Veritabanını Anında Doldurur
+        # Açılış İlk Taraması (Boot Sweep) - Veritabanını Anında Doldurur (100 BIST100 Hissesinin Tamamı)
         logger.info("[SCHEDULER] Açılış Taraması (Boot Sweep) Başlatılıyor...")
-        tickers = ["THYAO", "GARAN", "ASELS", "EREGL", "SISE", "BIMAS", "KCHOL", "ARCLK", "TUPRS", "AKBNK"]
+        tickers = [t for t in self.df_processed['ticker'].unique() if not str(t).startswith("DELIST")]
         for t in tickers:
             try:
                 self.evaluate_eod_signal(self.df_processed, t)
             except Exception as e:
                 logger.error(f"[BOOT SWEEP ERROR] {t}: {e}")
-        logger.info("[SCHEDULER] Açılış Taraması Tamamlandı. Veritabanı Hazır.")
+        logger.info(f"[SCHEDULER] Açılış Taraması {len(tickers)} Hisse İçin Tamamlandı. Veritabanı Hazır.")
 
     def evaluate_1015_gap_sentinel(self, df_live: pd.DataFrame, ticker: str) -> Optional[Dict[str, Any]]:
         """10:15 Saf Matematiksel Fiyat Bekçisi."""
