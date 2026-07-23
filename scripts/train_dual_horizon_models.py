@@ -29,6 +29,10 @@ class ReTrainerVersion131:
 
         df = df.sort_values(["ticker", "timestamp"]).reset_index(drop=True)
 
+        # Halka Arz Sonrası İlk 60 İşlem Günü Koruması (İlk 60 Günlük Tavan/Spekülasyon Evresi Eğitime Alınmaz)
+        df["trading_day_since_ipo"] = df.groupby("ticker").cumcount()
+        df = df[df["trading_day_since_ipo"] >= 60].reset_index(drop=True)
+
         # 1. Rolling Dynamics (Z-Score & ATR Expansion)
         df["rolling_sma20"] = df.groupby("ticker")["close"].transform(lambda x: x.rolling(20, min_periods=5).mean())
         df["rolling_std20"] = df.groupby("ticker")["close"].transform(lambda x: x.rolling(20, min_periods=5).std())
