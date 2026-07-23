@@ -167,7 +167,15 @@ class TelegramBotService:
         days_held = signal.get('days_held', 0)
         remaining_bus_days = max(20 - days_held, 1)
 
-        action_text = "🟢 AL / POZİSYON AÇ" if signal_code == 1 else ("🔴 SAT / NAKİTE GEÇ" if signal_code == -1 else "🟡 BEKLE / NAKİTTE KAL")
+        if signal_code == 1:
+            action_text = "🟢 AL / POZİSYON AÇ"
+            prediction_text = f"• 📈 <b>Öngörülen Kâr Potansiyeli:</b> +%{pct_target_low:.1f} ... +%{pct_target_high:.1f} (Yüksek Kâr Fırsatı)"
+        elif signal_code == -1:
+            action_text = "🔴 SAT / NAKİTE GEÇ"
+            prediction_text = f"• ⚠️ <b>Öngörülen Risk Sınırı:</b> -%{abs(pct_stop):.1f} (Destek Risk Seviyesi: {stop_loss:.2f} TL)"
+        else:
+            action_text = "🟡 BEKLE / NAKİTTE KAL"
+            prediction_text = f"• ⚖️ <b>Öngörülen Bant Hareket:</b> +%{pct_target_low:.1f} ... +%{pct_target_high:.1f} (Nötr / Yatay Trend)"
 
         return (
             f"🎯 <b>YAPAY ZEKÂ FIRSAT UYARISI: {ticker}</b>\n"
@@ -179,7 +187,7 @@ class TelegramBotService:
             f"📊 <b>GÜNCEL FİYAT VE HEDEF DETAYLARI:</b>\n"
             f"• 💵 <b>Güncel Borsa Fiyatı:</b> {cur_price:.2f} TL\n"
             f"• 🎯 <b>Hedeflenen Fiyat:</b> {target_low:.2f} TL - {target_high:.2f} TL\n"
-            f"• 📈 <b>Öngörülen Değişim Oranı:</b> +%{pct_target_low:.1f} ... +%{pct_target_high:.1f} (Yüksek Kâr Vaadi)\n"
+            f"{prediction_text}\n"
             f"• 🛡️ <b>İzleyen Stop Loss:</b> {stop_loss:.2f} TL (%{pct_stop:.1f} Risk Sınırı)\n\n"
             f"💡 <b>NEDEN BU KARAR VERİLDİ?</b>\n"
             f"Yapay zekâ 19 göstergeyi (Bilanço, Takas, Para Akışı) taradı.\n"

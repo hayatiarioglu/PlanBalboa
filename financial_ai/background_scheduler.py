@@ -269,15 +269,7 @@ class BackgroundScheduler:
 
         # Her Hisseye Özel Dinamik ATR ve Model Skorlu Kâr Hedefi & Stop-Loss
         atr_20 = float(latest_row.get("atr20", cur_price * 0.02))
-        volatility_factor = max(1.5 * (atr_20 / cur_price), 0.05)
-        
-        target_pct_low = max(0.065, p_success * 0.15)
-        target_pct_high = target_pct_low + volatility_factor
-
-        target_low = cur_price * (1 + target_pct_low) * scale_factor
-        target_high = cur_price * (1 + target_pct_high) * scale_factor
-        stop_loss = cur_price * (1 - volatility_factor) * scale_factor
-        cur_price_adj = cur_price * scale_factor
+        volatility_factor = max(1.5 * (atr_20 / cur_price), 0.04)
 
         prev_close = float(ticker_df.iloc[-2]["close"]) if len(ticker_df) >= 2 else cur_price
         pct_change = (cur_price - prev_close) / prev_close
@@ -287,6 +279,24 @@ class BackgroundScheduler:
         engine_b_sig = 1 if p_success >= 0.52 else (-1 if p_success < 0.40 else 0)
 
         consolidated_signal_name, advisory = self.CONSOLIDATION_MATRIX.get((engine_b_sig, engine_a_sig), ("NOTR / NAKIT", "Islemsiz Bekle"))
+
+        if p_success >= 0.52:
+            target_pct_low = max(0.045, (p_success - 0.50) * 0.30 + volatility_factor)
+            target_pct_high = target_pct_low + volatility_factor
+            stop_pct = max(0.035, volatility_factor)
+        elif p_success < 0.40 or pct_change <= dynamic_stop_threshold:
+            target_pct_low = 0.0
+            target_pct_high = max(0.01, volatility_factor * 0.5)
+            stop_pct = max(0.045, volatility_factor * 1.3)
+        else:
+            target_pct_low = max(0.015, volatility_factor * 0.7)
+            target_pct_high = target_pct_low + volatility_factor * 0.8
+            stop_pct = max(0.035, volatility_factor)
+
+        target_low = cur_price * (1 + target_pct_low) * scale_factor
+        target_high = cur_price * (1 + target_pct_high) * scale_factor
+        stop_loss = cur_price * (1 - stop_pct) * scale_factor
+        cur_price_adj = cur_price * scale_factor
 
         target_check = target_high
 
