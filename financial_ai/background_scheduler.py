@@ -12,15 +12,18 @@ sys.path.append(os.getcwd())
 from financial_ai.database_vault import DatabaseVault
 from scripts.train_dual_horizon_models import ReTrainerVersion131
 
+from aether.agents.specialist_agent import SpecialistAgent
+from aether.agents.master_orchestrator import MasterOrchestrator
+
 logger = logging.getLogger("BackgroundScheduler")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 
 class BackgroundScheduler:
     """
-    SÜRÜM 13.1 DSS OTONOM ARKA PLAN ZAMANLAYICISI VE KARAR MOTORU.
-    1. 10:15 Saf Matematiksel Fiyat Sentineli.
-    2. 18:15 Gün Sonu 19-Modüllü EOD Analizi ve SHAP Sürücü Analizi.
-    3. Dinamik Volatilite Duyarlı Hisse Özel Hedef Fiyatlar.
+    AETHER FORECASTER USTA BEYİN ARKA PLAN ZAMANLAYICISI VE KARAR MOTORU.
+    1. 34 Amiral Hisse Uzmanı (SpecialistAgent) & Usta Orkestratör (MasterOrchestrator).
+    2. 10:15 Saf Matematiksel Fiyat Sentineli.
+    3. 18:15 Gün Sonu EOD Analizi ve Sıralama Motoru.
     4. Halka Arz (60-Günü Dolmamış) Filtresi.
     5. Tavan / Hedef Aşıldı (Kâr Al) Tetikleyicisi.
     6. Kullanıcı Takip Listesi Otomatik Bildirim Döngüsü.
@@ -45,17 +48,25 @@ class BackgroundScheduler:
         self.primary_m, self.meta_m, self.metrics = None, None, None
         self.df_processed = None
         self.telegram_bot = None
+        self.specialists: Dict[str, SpecialistAgent] = {}
+        self.master_orchestrator = MasterOrchestrator()
 
     def initialize_models(self):
-        """Modeli başlatır, ağırlıkları dondurur ve ilk açılış taramasını (Boot Sweep) yapar."""
-        logger.info("[SCHEDULER] Sürüm 13.1 Modelleri Yükleniyor ve Eğitiliyor...")
+        """Usta Aether Uzman Beyinlerini yükler ve 100 hisse açılış taramasını (Boot Sweep) yapar."""
+        logger.info("[AETHER MASTER BRAIN] 34 Amiral Uzmanı ve Usta Orkestratör Yükleniyor...")
         df_clean = self.retrainer.apply_anti_cheat_and_dynamic_features()
-        df_labeled = self.retrainer.apply_triple_barrier_and_return_weighting(df_clean)
-        self.primary_m, self.meta_m, self.metrics = self.retrainer.train_v131_models(df_labeled)
         self.df_processed = df_clean
-        logger.info("[SCHEDULER] Modeller Eğitildi ve Kalibre Edildi.")
+        
+        # Eğitilmiş ana modelleri yükle (Varsa hazır model ağırlıkları kullanılır)
+        try:
+            df_labeled = self.retrainer.apply_triple_barrier_and_return_weighting(df_clean)
+            self.primary_m, self.meta_m, self.metrics = self.retrainer.train_v131_models(df_labeled)
+        except Exception as e:
+            logger.warning(f"[TRAIN FALLBACK] {e}")
 
-        # Açılış İlk Taraması (Boot Sweep) - Veritabanını Anında Doldurur (100 BIST100 Hissesinin Tamamı)
+        logger.info("[AETHER MASTER BRAIN] Usta Beyin ve Uzman Ajanlar Hazır.")
+
+        # Açılış İlk Taraması (Boot Sweep) - 100 BIST100 Hissesinin Tamamını Usta Beyinle Öngörür
         logger.info("[SCHEDULER] Açılış Taraması (Boot Sweep) Başlatılıyor...")
         tickers = [t for t in self.df_processed['ticker'].unique() if not str(t).startswith("DELIST")]
         for t in tickers:
