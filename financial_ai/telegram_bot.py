@@ -194,13 +194,13 @@ class TelegramBotService:
         await update.message.reply_text(welcome_txt, parse_mode=ParseMode.HTML)
 
     async def _cmd_scan(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """10 AL, 10 BEKLE, 10 SAT Gruplanmış Detaylı BIST100 Taraması."""
-        await update.message.reply_text("🔎 <i>BIST100 evreni (10 AL, 10 BEKLE, 10 SAT) gruplarıyla taranıyor...</i>", parse_mode=ParseMode.HTML)
+        """5 AL, 5 BEKLE, 5 SAT Gruplanmış Detaylı BIST100 Taraması."""
+        await update.message.reply_text("🔎 <i>BIST100 evreni (5 AL, 5 BEKLE, 5 SAT) gruplarıyla taranıyor...</i>", parse_mode=ParseMode.HTML)
 
         try:
-            signals_buy = await asyncio.to_thread(self._get_grouped_signals, 1, 10)
-            signals_wait = await asyncio.to_thread(self._get_grouped_signals, 0, 10)
-            signals_sell = await asyncio.to_thread(self._get_grouped_signals, -1, 10)
+            signals_buy = await asyncio.to_thread(self._get_grouped_signals, 1, 5)
+            signals_wait = await asyncio.to_thread(self._get_grouped_signals, 0, 5)
+            signals_sell = await asyncio.to_thread(self._get_grouped_signals, -1, 5)
 
             if not (signals_buy or signals_wait) and self.scheduler:
                 retries = 0
@@ -218,9 +218,9 @@ class TelegramBotService:
                             computed_signals.append(res)
                         except Exception:
                             pass
-                    signals_buy = [s for s in computed_signals if s['signal_code'] == 1][:10]
-                    signals_wait = [s for s in computed_signals if s['signal_code'] == 0][:10]
-                    signals_sell = [s for s in computed_signals if s['signal_code'] == -1][:10]
+                    signals_buy = [s for s in computed_signals if s['signal_code'] == 1][:5]
+                    signals_wait = [s for s in computed_signals if s['signal_code'] == 0][:5]
+                    signals_sell = [s for s in computed_signals if s['signal_code'] == -1][:5]
 
             start_date = datetime.now().strftime("%d.%m.%Y")
             end_date = (datetime.now() + timedelta(days=30)).strftime("%d.%m.%Y")
@@ -231,8 +231,8 @@ class TelegramBotService:
                 f"━━━━━━━━━━━━━━━━━━━━━\n\n"
             )
 
-            # 🟢 10 AL HİSSESİ
-            msg += "🟢 <b>ALIM FIRSATI OLAN HİSSELER (TOP-10 AL):</b>\n"
+            # 🟢 5 AL HİSSESİ
+            msg += "🟢 <b>ALIM FIRSATI OLAN HİSSELER (TOP-5 AL):</b>\n"
             if signals_buy:
                 for idx, sig in enumerate(signals_buy, 1):
                     raw_p = sig.get('current_price', 0.0)
@@ -243,7 +243,7 @@ class TelegramBotService:
             else:
                 msg += "<i>Şu an yüksek olasılıklı alım sinyali veren hisse yok.</i>\n"
 
-            msg += "\n🟡 <b>NÖTR / POZİSYONU KORU HİSSELERİ (TOP-10 BEKLE):</b>\n"
+            msg += "\n🟡 <b>NÖTR / POZİSYONU KORU HİSSELERİ (TOP-5 BEKLE):</b>\n"
             if signals_wait:
                 for idx, sig in enumerate(signals_wait, 1):
                     raw_p = sig.get('current_price', 0.0)
@@ -252,7 +252,7 @@ class TelegramBotService:
             else:
                 msg += "<i>Nötr konumda hisse bulunmuyor.</i>\n"
 
-            msg += "\n🔴 <b>SAT / UZAK DURULMASI GEREKEN HİSSELER (TOP-10 SAT):</b>\n"
+            msg += "\n🔴 <b>SAT / UZAK DURULMASI GEREKEN HİSSELER (TOP-5 SAT):</b>\n"
             if signals_sell:
                 for idx, sig in enumerate(signals_sell, 1):
                     raw_p = sig.get('current_price', 0.0)
