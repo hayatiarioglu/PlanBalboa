@@ -234,8 +234,8 @@ class BackgroundScheduler:
 
         latest_row = ticker_df.iloc[-1]
         cur_price = float(latest_row["close"])
-        from financial_ai.telegram_bot import NOMINAL_PRICE_MAP
-        cur_nominal_price = float(NOMINAL_PRICE_MAP.get(ticker, latest_row.get("close_nominal", cur_price)))
+        from financial_ai.live_price_fetcher import get_live_bist_price
+        cur_nominal_price = float(get_live_bist_price(ticker, fallback_price=cur_price))
         scale_factor = cur_nominal_price / cur_price if cur_price != 0 else 1.0
 
         if hasattr(self.primary_m, "feature_names_in_"):

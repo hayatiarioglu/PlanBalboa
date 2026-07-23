@@ -70,7 +70,8 @@ class TelegramBotService:
         self.scheduler = None
 
     def _get_nominal_price(self, ticker: str, real_price: float) -> float:
-        return NOMINAL_PRICE_MAP.get(ticker.upper(), real_price)
+        from financial_ai.live_price_fetcher import get_live_bist_price
+        return get_live_bist_price(ticker, fallback_price=real_price)
 
     async def _post_init(self, application: Application):
         self.loop = asyncio.get_running_loop()
