@@ -1,6 +1,7 @@
 import os
 import sys
 import time
+import threading
 import logging
 import numpy as np
 import pandas as pd
@@ -63,6 +64,53 @@ class BackgroundScheduler:
             except Exception as e:
                 logger.error(f"[BOOT SWEEP ERROR] {t}: {e}")
         logger.info(f"[SCHEDULER] Açılış Taraması {len(tickers)} Hisse İçin Tamamlandı. Veritabanı Hazır.")
+        self.start_periodic_scheduler()
+
+    def start_periodic_scheduler(self):
+        """Her gün saat 10:15 TRT (Sentinel) ve 18:15 TRT (EOD) otomatik tarama döngüsünü başlatır."""
+        def scheduler_loop():
+            import datetime
+            logger.info("⏱️ [SCHEDULER] Arka plan periyodik zamanlayıcı nöbetçi döngüsü başlatıldı (TRT UTC+3).")
+            last_run_date_1015 = None
+            last_run_date_1815 = None
+
+            while True:
+                try:
+                    # Türkiye Saati (UTC+3)
+                    now_utc = datetime.datetime.now(datetime.timezone.utc)
+                    now_trt = now_utc + datetime.timedelta(hours=3)
+                    date_str = now_trt.strftime("%Y-%m-%d")
+                    time_str = now_trt.strftime("%H:%M")
+
+                    if time_str == "10:15" and last_run_date_1015 != date_str:
+                        logger.info(f"[CRON 10:15 TRT] Gün Başlangıcı Bekçi Taraması Başlatılıyor ({date_str})...")
+                        last_run_date_1015 = date_str
+                        if self.df_processed is not None:
+                            tickers = [t for t in self.df_processed['ticker'].unique() if not str(t).startswith("DELIST")]
+                            for t in tickers:
+                                try:
+                                    self.evaluate_1015_gap_sentinel(self.df_processed, t)
+                                except Exception as e:
+                                    logger.error(f"[10:15 CRON ERROR] {t}: {e}")
+
+                    elif time_str == "18:15" and last_run_date_1815 != date_str:
+                        logger.info(f"[CRON 18:15 TRT] Gün Sonu 100-Hisse EOD Analizi Başlatılıyor ({date_str})...")
+                        last_run_date_1815 = date_str
+                        if self.df_processed is not None:
+                            tickers = [t for t in self.df_processed['ticker'].unique() if not str(t).startswith("DELIST")]
+                            for t in tickers:
+                                try:
+                                    self.evaluate_eod_signal(self.df_processed, t)
+                                except Exception as e:
+                                    logger.error(f"[18:15 CRON ERROR] {t}: {e}")
+
+                except Exception as e:
+                    logger.error(f"[SCHEDULER LOOP ERROR] {e}")
+
+                time.sleep(30) # Her 30 saniyede bir saati kontrol et
+
+        thread = threading.Thread(target=scheduler_loop, daemon=True)
+        thread.start()
 
     def evaluate_1015_gap_sentinel(self, df_live: pd.DataFrame, ticker: str) -> Optional[Dict[str, Any]]:
         """10:15 Saf Matematiksel Fiyat Bekçisi."""

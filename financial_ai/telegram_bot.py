@@ -78,7 +78,7 @@ class TelegramBotService:
     def _get_nominal_price(self, ticker: str, adj_price: float) -> float:
         if ticker in NOMINAL_PRICE_MAP:
             return NOMINAL_PRICE_MAP[ticker]
-        return adj_price * 10.0 if adj_price < 20 else adj_price
+        return adj_price
 
     # =========================================================================
     # THREAD-SAFE DIŞ BİLDİRİM KÖPRÜSÜ
