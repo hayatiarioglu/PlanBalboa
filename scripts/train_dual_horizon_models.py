@@ -132,7 +132,12 @@ class ReTrainerVersion131:
         return primary_model, calibrated_meta, metrics
 
 if __name__ == "__main__":
+    import joblib
     retrainer = ReTrainerVersion131()
     df_clean = retrainer.apply_anti_cheat_and_dynamic_features()
     df_labeled = retrainer.apply_triple_barrier_and_return_weighting(df_clean)
     primary_m, meta_m, metrics = retrainer.train_v131_models(df_labeled)
+    os.makedirs("models", exist_ok=True)
+    joblib.dump(primary_m, "models/primary_model.joblib")
+    joblib.dump(meta_m, "models/meta_model.joblib")
+    print("\n✅ [MODEL SAVED] models/primary_model.joblib ve models/meta_model.joblib başarıyla güncellendi.")

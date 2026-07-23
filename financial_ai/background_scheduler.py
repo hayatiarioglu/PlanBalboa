@@ -176,12 +176,22 @@ class BackgroundScheduler:
         latest_row = ticker_df.iloc[-1]
         cur_price = float(latest_row["close"])
 
-        feature_cols = [
-            'pe_ratio_ranked', 'pb_ratio_ranked', 'ebitda_growth_ranked', 'roe_ranked', 
-            'obi_ranked', 'akd_top5_share_ranked', 'net_money_flow_tl_ranked', 
-            'z_score_price_ranked', 'z_score_volume_ranked'
-        ]
-        X_sample = pd.DataFrame([latest_row[feature_cols]])
+        if hasattr(self.primary_m, "feature_names_in_"):
+            feature_cols = list(self.primary_m.feature_names_in_)
+        else:
+            feature_cols = [
+                'pe_ratio_ranked', 'pb_ratio_ranked', 'ebitda_growth_ranked', 'roe_ranked', 
+                'obi_ranked', 'akd_top5_share_ranked', 'net_money_flow_tl_ranked', 
+                'z_score_price_ranked', 'z_score_volume_ranked'
+            ]
+
+        sample_dict = {}
+        for col in feature_cols:
+            if col in latest_row and not pd.isna(latest_row[col]):
+                sample_dict[col] = latest_row[col]
+            else:
+                sample_dict[col] = 0.5
+        X_sample = pd.DataFrame([sample_dict])[feature_cols]
 
         class_probs = self.primary_m.predict_proba(X_sample)[0]
         p_bearish, p_neutral, p_bullish = class_probs[0], class_probs[1], class_probs[2]
