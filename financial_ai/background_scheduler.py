@@ -118,7 +118,7 @@ class BackgroundScheduler:
         if not last_signal:
             return None
 
-        stop_loss_prev = last_signal["stop_loss_price"]
+        stop_loss_prev = (last_signal.get("stop_loss_price") if last_signal else None) or 0.0
         ticker_df = df_live[df_live["ticker"] == ticker].sort_values("timestamp")
 
         if len(ticker_df) < 60:
@@ -205,7 +205,10 @@ class BackgroundScheduler:
 
         consolidated_signal_name, advisory = self.CONSOLIDATION_MATRIX.get((engine_b_sig, engine_a_sig), ("NOTR / NAKIT", "Islemsiz Bekle"))
 
-        if cur_price >= (last_signal["target_price_high"] if last_signal else target_high):
+        prev_target_high = last_signal.get("target_price_high") if last_signal else None
+        target_check = prev_target_high if prev_target_high is not None else target_high
+
+        if cur_price >= target_check:
             current_signal_code = 0
             revision_reason = f"🚀 TAVAN / HEDEF AŞILDI! ({cur_price:.2f} TL) Kâr Al Vakti"
             if self.telegram_bot and ticker in self.db_vault.get_watchlist():

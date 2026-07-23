@@ -295,11 +295,14 @@ class TelegramBotService:
                 try:
                     df_live = pd.read_parquet("data/bist_2016_2026_adjusted.parquet")
                     signal = await asyncio.to_thread(self.scheduler.evaluate_eod_signal, df_live, ticker)
+                except ValueError as ve:
+                    await update.message.reply_text(f"🛡️ <b>{ticker}</b> henüz 60 işlem gününü doldurmamış yeni bir halka arz şirketidir. Risk koruması nedeniyle kumar oynamamak için analize alınmamaktadır.", parse_mode=ParseMode.HTML)
+                    return
                 except Exception as e:
                     logger.error(f"Canlı hisse hesaplama hatası ({ticker}): {e}")
 
         if not signal:
-            await update.message.reply_text(f"❌ <b>{ticker}</b> hissesi bulunamadı veya analiz henüz tamamlanmadı.", parse_mode=ParseMode.HTML)
+            await update.message.reply_text(f"❌ <b>{ticker}</b> hissesi bulunamadı veya henüz 60 günlük verisi birikmedi.", parse_mode=ParseMode.HTML)
             return
 
         card_html = self._format_opportunity_card(signal)

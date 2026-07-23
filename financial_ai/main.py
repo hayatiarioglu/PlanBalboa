@@ -65,21 +65,15 @@ def main():
     init_thread = threading.Thread(target=scheduler_service.initialize_models, daemon=True)
     init_thread.start()
 
-    def graceful_shutdown(signum, frame):
-        logger.warning("⚠️ Kapanma sinyali alındı (SIGINT/SIGTERM). Servisler durduruluyor...")
-        db_vault.close()
-        logger.info("✅ Tüm servisler güvenle kapatıldı. Çıkış yapılıyor.")
-        sys.exit(0)
-
-    signal.signal(signal.SIGINT, graceful_shutdown)
-    signal.signal(signal.SIGTERM, graceful_shutdown)
-
     try:
         logger.info("🚀 Tüm sistemler aktif. Telegram Bot Dinleyicisi başlatılıyor...")
         telegram_bot.start_bot()
     except Exception as e:
         logger.critical(f"Kritik Çalışma Zamanı Hatası: {e}")
-        graceful_shutdown(None, None)
+    finally:
+        logger.warning("⚠️ Servisler kapatılıyor. DatabaseVault temizleniyor...")
+        db_vault.close()
+        logger.info("✅ Tüm servisler güvenle kapatıldı.")
 
 
 if __name__ == "__main__":
