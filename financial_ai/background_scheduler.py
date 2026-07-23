@@ -177,7 +177,9 @@ class BackgroundScheduler:
 
         class_probs = self.primary_m.predict_proba(X_sample)[0]
         p_bearish, p_neutral, p_bullish = class_probs[0], class_probs[1], class_probs[2]
-        p_success = float(self.meta_m.predict_proba(X_sample)[0, 1])
+        
+        p_raw = float(self.meta_m.predict_proba(X_sample)[0, 1])
+        p_success = float(0.15 + (p_raw - 0.28) / (0.81 - 0.28 + 1e-5) * 0.70)
 
         last_signal = self.db_vault.get_last_signal(ticker)
 
@@ -201,7 +203,7 @@ class BackgroundScheduler:
         dynamic_stop_threshold = -max(1.8 * (atr_20 / prev_close), 0.04)
 
         engine_a_sig = 1 if p_bullish > p_bearish and p_bullish >= 0.35 else (-1 if p_bearish > 0.45 else 0)
-        engine_b_sig = 1 if p_success >= 0.50 else (-1 if p_success < 0.45 else 0)
+        engine_b_sig = 1 if p_success >= 0.52 else (-1 if p_success < 0.40 else 0)
 
         consolidated_signal_name, advisory = self.CONSOLIDATION_MATRIX.get((engine_b_sig, engine_a_sig), ("NOTR / NAKIT", "Islemsiz Bekle"))
 
@@ -214,20 +216,20 @@ class BackgroundScheduler:
             if self.telegram_bot and ticker in self.db_vault.get_watchlist():
                 self.telegram_bot.send_notification_from_thread(ticker, "TARGET_EXCEEDED", revision_reason)
 
-        elif pct_change <= dynamic_stop_threshold or p_success < 0.35 or (p_success < 0.45 and days_held >= 20):
+        elif pct_change <= dynamic_stop_threshold or p_success < 0.40 or (p_success < 0.45 and days_held >= 20):
             current_signal_code = -1 # SAT
             revision_reason = f"Acil Devre Kesici / Düsüs Trendi (P: %{p_success*100:.1f})"
             if self.telegram_bot and last_state != -1 and ticker in self.db_vault.get_watchlist():
                 self.telegram_bot.send_notification_from_thread(ticker, "EMERGENCY_SAT", revision_reason)
 
-        elif p_success >= 0.50:
+        elif p_success >= 0.52:
             current_signal_code = 1 # AL
             revision_reason = f"Yapay Zeka Teyitli Boga Trendi (P: %{p_success*100:.1f})"
             if self.telegram_bot and last_state != 1 and ticker in self.db_vault.get_watchlist():
                 self.telegram_bot.send_notification_from_thread(ticker, "SIGNAL_BUY", revision_reason)
 
         else:
-            current_signal_code = last_state if last_state != 0 or last_signal is not None else (1 if p_success >= 0.50 else 0)
+            current_signal_code = last_state if last_state != 0 or last_signal is not None else (1 if p_success >= 0.52 else 0)
             revision_reason = "Hysteresis Bolgesi - Pozisyon Korundu"
 
         self.db_vault.execute_write_async(
