@@ -97,11 +97,14 @@ class DatabaseVault:
 
     def get_last_signal(self, ticker: str) -> Optional[Dict[str, Any]]:
         query = "SELECT * FROM signals WHERE ticker = ? ORDER BY id DESC LIMIT 1;"
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(query, (ticker,))
-            row = cursor.fetchone()
-            return dict(row) if row else None
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(query, (ticker,))
+                row = cursor.fetchone()
+                return dict(row) if row else None
+        except sqlite3.OperationalError:
+            return None
 
     def add_to_watchlist(self, ticker: str) -> bool:
         """Kullanıcının özel takip listesine hisse ekler."""
